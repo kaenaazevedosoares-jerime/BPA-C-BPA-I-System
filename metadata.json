@@ -1,0 +1,5 @@
+{
+  "name": "Dashboard LRPD - Gestão Odontológica",
+  "description": "Uma plataforma completa para gestão de Laboratórios Regionais de Prótese Dentária (LRPD), com suporte a temas claro/escuro, registro de BPA-I/BPA-C e acompanhamento de produção.",
+  "requestFramePermissions": []
+}
