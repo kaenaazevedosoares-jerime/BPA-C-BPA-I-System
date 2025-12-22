@@ -30,6 +30,11 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
   const [dateScheduling, setDateScheduling] = useState('');
   const [status, setStatus] = useState('Em Produção');
   const [procedureCode, setProcedureCode] = useState('');
+  
+  // Date Text States (Masked)
+  const [dateServiceText, setDateServiceText] = useState('');
+  const [dateSchedulingText, setDateSchedulingText] = useState('');
+
   const [selectedProcedure, setSelectedProcedure] = useState<Procedure | null>(null);
   const [notes, setNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -39,6 +44,7 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<Patient[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
 
@@ -48,6 +54,56 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
   const [isProcSearching, setIsProcSearching] = useState(false);
   const [showProcResults, setShowProcResults] = useState(false);
   const [showProcDetails, setShowProcDetails] = useState(false);
+
+  // Date Helpers
+  const formatDateToMask = (isoStr: string) => {
+    if (!isoStr) return '';
+    try {
+      const d = new Date(isoStr);
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      const hour = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      return `${day}/${month}/${year} ${hour}:${min}`;
+    } catch { return ''; }
+  };
+
+  const applyDateMask = (value: string) => {
+    let v = value.replace(/\D/g, '');
+    if (v.length > 12) v = v.slice(0, 12);
+    
+    if (v.length > 8) {
+      return v.replace(/(\d{2})(\d{2})(\d{4})(\d{2})(\d{0,2})/, '$1/$2/$3 $4:$5');
+    } else if (v.length > 4) {
+      return v.replace(/(\d{2})(\d{2})(\d{4})/, '$1/$2/$3');
+    } else if (v.length > 2) {
+      return v.replace(/(\d{2})(\d{2})/, '$1/$2');
+    }
+    return v;
+  };
+
+  const parseDateToISO = (str: string) => {
+    if (str.length < 16) return null;
+    const [datePart, timePart] = str.split(' ');
+    if (!datePart || !timePart) return null;
+    const [day, month, year] = datePart.split('/');
+    const [hour, minute] = timePart.split(':');
+    
+    if (!day || !month || !year || !hour || !minute) return null;
+    
+    // Create date manually to avoid timezone issues
+    const d = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+    if (isNaN(d.getTime())) return null;
+    
+    // Format to YYYY-MM-DDTHH:mm
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${dd}T${hh}:${mm}`;
+  };
 
   // Fetch data for editing
   useEffect(() => {
@@ -92,13 +148,17 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
             if (data.date_service) {
               const d = new Date(data.date_service);
               d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-              setDateService(d.toISOString().slice(0, 16));
+              const iso = d.toISOString().slice(0, 16);
+              setDateService(iso);
+              setDateServiceText(formatDateToMask(data.date_service)); // Using original ISO
             }
 
             if (data.date_scheduling) {
               const d = new Date(data.date_scheduling);
               d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-              setDateScheduling(d.toISOString().slice(0, 16));
+              const iso = d.toISOString().slice(0, 16);
+              setDateScheduling(iso);
+              setDateSchedulingText(formatDateToMask(data.date_scheduling));
             }
           }
         } catch (error) {
@@ -115,7 +175,7 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
   // Search Effect (Patient)
   useEffect(() => {
     const searchPatients = async () => {
-      if (searchTerm.length < 3) {
+      if (searchTerm.length < 1) {
         setSearchResults([]);
         return;
       }
@@ -124,16 +184,23 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
       if (initialId && selectedPatient && searchTerm === selectedPatient.name) return;
 
       setIsSearching(true);
-      const { data, error } = await supabase
-        .from('patients')
-        .select('*')
-        .or(`name.ilike.%${searchTerm}%,cns.ilike.%${searchTerm}%`)
-        .limit(5);
+      setSearchError(false);
+      try {
+        const { data, error } = await supabase
+          .from('patients')
+          .select('*')
+          .or(`name.ilike.%${searchTerm}%,cns.ilike.%${searchTerm}%`)
+          .limit(5);
 
-      if (!error && data) {
-        setSearchResults(data);
+        if (error) throw error;
+        setSearchResults(data || []);
+      } catch (error) {
+        console.error('Erro na busca de pacientes:', error);
+        setSearchError(true);
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
       }
-      setIsSearching(false);
     };
 
     const timeoutId = setTimeout(searchPatients, 500);
@@ -143,7 +210,7 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
   // Search Effect (Procedure)
   useEffect(() => {
     const searchProcedures = async () => {
-      if (procSearchTerm.length < 3) {
+      if (procSearchTerm.length < 1) {
         setProcSearchResults([]);
         return;
       }
@@ -164,7 +231,7 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
       setIsProcSearching(false);
     };
 
-    const timeoutId = setTimeout(searchProcedures, 500);
+    const timeoutId = setTimeout(searchProcedures, 300);
     return () => clearTimeout(timeoutId);
   }, [procSearchTerm]);
 
@@ -277,18 +344,33 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
             />
             
             {/* Search Results Dropdown */}
-            {showResults && searchResults.length > 0 && (
+            {showResults && (
               <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-surface-dark rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden max-h-60 overflow-y-auto z-50">
-                {searchResults.map(patient => (
-                  <button
-                    key={patient.id}
-                    onClick={() => handleSelectPatient(patient)}
-                    className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-50 dark:border-slate-800 last:border-0"
-                  >
-                    <p className="font-bold text-slate-900 dark:text-white text-sm">{patient.name}</p>
-                    <p className="text-xs text-slate-500">CNS: {patient.cns}</p>
-                  </button>
-                ))}
+                {isSearching ? (
+                  <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-xs font-medium">
+                    <span className="material-symbols-outlined animate-spin text-lg mb-1 block">progress_activity</span>
+                    Buscando pacientes...
+                  </div>
+                ) : searchError ? (
+                  <div className="p-4 text-center text-red-500 text-xs font-medium">
+                    Erro ao buscar pacientes. Verifique sua conexão.
+                  </div>
+                ) : searchResults.length > 0 ? (
+                  searchResults.map(patient => (
+                    <button
+                      key={patient.id}
+                      onClick={() => handleSelectPatient(patient)}
+                      className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-50 dark:border-slate-800 last:border-0"
+                    >
+                      <p className="font-bold text-slate-900 dark:text-white text-sm">{patient.name}</p>
+                      <p className="text-xs text-slate-500">CNS: {patient.cns}</p>
+                    </button>
+                  ))
+                ) : searchTerm.length > 0 ? (
+                  <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-xs font-medium">
+                    Nenhum paciente encontrado
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
@@ -320,21 +402,81 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="group">
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase">Data Atendimento *</label>
-            <input 
-              type="datetime-local" 
-              value={dateService}
-              onChange={(e) => setDateService(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm [color-scheme:dark]" 
-            />
+            <div className="relative">
+              <input 
+                type="text" 
+                inputMode="numeric"
+                value={dateServiceText}
+                placeholder="dd/mm/aaaa hh:mm"
+                maxLength={16}
+                onChange={(e) => {
+                  const val = applyDateMask(e.target.value);
+                  setDateServiceText(val);
+                  const iso = parseDateToISO(val);
+                  if (iso) setDateService(iso);
+                }}
+                className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 pr-12 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm" 
+              />
+              <button 
+                type="button"
+                onClick={() => {
+                  const input = document.getElementById('date-service-picker') as HTMLInputElement;
+                  if (input) input.showPicker();
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-primary transition-colors"
+              >
+                <span className="material-symbols-outlined">calendar_month</span>
+              </button>
+              <input
+                id="date-service-picker"
+                type="datetime-local"
+                className="sr-only"
+                value={dateService}
+                onChange={(e) => {
+                  setDateService(e.target.value);
+                  setDateServiceText(formatDateToMask(e.target.value));
+                }}
+              />
+            </div>
           </div>
           <div className="group">
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase text-primary">Data Agendamento</label>
-            <input 
-              type="datetime-local" 
-              value={dateScheduling}
-              onChange={(e) => setDateScheduling(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm [color-scheme:dark]" 
-            />
+            <div className="relative">
+              <input 
+                type="text" 
+                inputMode="numeric"
+                value={dateSchedulingText}
+                placeholder="dd/mm/aaaa hh:mm"
+                maxLength={16}
+                onChange={(e) => {
+                  const val = applyDateMask(e.target.value);
+                  setDateSchedulingText(val);
+                  const iso = parseDateToISO(val);
+                  if (iso) setDateScheduling(iso);
+                }}
+                className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 pr-12 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm" 
+              />
+              <button 
+                type="button"
+                onClick={() => {
+                  const input = document.getElementById('date-scheduling-picker') as HTMLInputElement;
+                  if (input) input.showPicker();
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-primary transition-colors"
+              >
+                <span className="material-symbols-outlined">event</span>
+              </button>
+              <input
+                id="date-scheduling-picker"
+                type="datetime-local"
+                className="sr-only"
+                value={dateScheduling}
+                onChange={(e) => {
+                  setDateScheduling(e.target.value);
+                  setDateSchedulingText(formatDateToMask(e.target.value));
+                }}
+              />
+            </div>
           </div>
         </div>
 
@@ -384,18 +526,29 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
             />
             
             {/* Procedure Search Results Dropdown */}
-            {showProcResults && procSearchResults.length > 0 && (
+            {showProcResults && (
               <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-surface-dark rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden max-h-60 overflow-y-auto z-50">
-                {procSearchResults.map(proc => (
-                  <button
-                    key={proc.id}
-                    onClick={() => handleSelectProcedure(proc)}
-                    className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-50 dark:border-slate-800 last:border-0"
-                  >
-                    <p className="font-bold text-slate-900 dark:text-white text-sm font-mono">{proc.code}</p>
-                    <p className="text-xs text-slate-500">{proc.name}</p>
-                  </button>
-                ))}
+                {isProcSearching ? (
+                  <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-xs font-medium">
+                    <span className="material-symbols-outlined animate-spin text-lg mb-1 block">progress_activity</span>
+                    Buscando procedimentos...
+                  </div>
+                ) : procSearchResults.length > 0 ? (
+                  procSearchResults.map(proc => (
+                    <button
+                      key={proc.id}
+                      onClick={() => handleSelectProcedure(proc)}
+                      className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-50 dark:border-slate-800 last:border-0"
+                    >
+                      <p className="font-bold text-slate-900 dark:text-white text-sm font-mono">{proc.code}</p>
+                      <p className="text-xs text-slate-500">{proc.name}</p>
+                    </button>
+                  ))
+                ) : procSearchTerm.length > 0 ? (
+                  <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-xs font-medium">
+                    Nenhum procedimento encontrado
+                  </div>
+                ) : null}
               </div>
             )}
           </div>

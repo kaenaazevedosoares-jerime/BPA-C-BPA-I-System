@@ -146,13 +146,6 @@ const ProfissionaisList: React.FC<ProfissionaisListProps> = ({ onAddNew, onEdit 
             </div>
             <div className="flex items-end gap-2">
               <button
-                onClick={handleSearch}
-                className="bg-primary hover:bg-primary-dark text-white px-4 py-2 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center gap-2"
-              >
-                <span className="material-symbols-outlined text-sm">search</span>
-                Buscar
-              </button>
-              <button
                 onClick={handleClearSearch}
                 className="bg-slate-500 hover:bg-slate-600 text-white px-4 py-2 rounded-lg shadow-md hover:shadow-lg transition-all"
               >

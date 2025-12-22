@@ -150,9 +150,15 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
     if (extraField) payload[extraField] = extraValue;
 
     const { error } = await supabase.from(table).insert([payload]);
-    if (error && error.code !== '23505') { 
-      console.error(`Erro ao salvar no catálogo ${table}:`, error.message);
+    if (error) {
+      if (error.code === '23505') {
+         alert('Este item já existe no catálogo.');
+      } else {
+         console.error(`Erro ao salvar no catálogo ${table}:`, error.message);
+         alert(`Erro ao salvar: ${error.message}`);
+      }
     } else {
+      alert('Salvo no catálogo com sucesso!');
       fetchCatalogs(); 
     }
   };
@@ -175,7 +181,7 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
       neighborhood: formData.neighborhood || null,
       street_code: formData.street_code || null,
       street_type: formData.street_type || null,
-      complement: formData.complement || null,
+      // complement: formData.complement || null, // Comentado temporariamente até a migração do banco ser aplicada
       street: formData.street || null,
       number: formData.number || null,
       phone: formData.phone || null,
@@ -343,17 +349,21 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
               <div className="md:col-span-2 relative">
                 <InputGroup label="Cód. Lograd." placeholder="Código" value={formData.street_code} onChange={(v: string) => handleChange('street_code', v)} list="street-code-list" />
                 <datalist id="street-code-list">{catalogs.streets.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}</datalist>
+                {/* Botão para salvar código manualmente se necessário */}
+                {formData.street_code && !catalogs.streets.some(s => s.code === formData.street_code) && (
+                   <button onClick={() => saveToCatalog('streets_catalog', 'code', formData.street_code, 'name', formData.street || 'Novo Logradouro')} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar Código</button>
+                )}
               </div>
 
-              <div className="md:col-span-3 relative">
-                <InputGroup label="Tipo Logradouro" placeholder="Rua, Av..." value={formData.street_type} onChange={(v: string) => handleChange('street_type', v)} list="type-list" />
+              <div className="md:col-span-2 relative">
+                <InputGroup label="Tipo Lograd." placeholder="Rua..." value={formData.street_type} onChange={(v: string) => handleChange('street_type', v)} list="type-list" />
                 <datalist id="type-list">{catalogs.streetTypes.map(t => <option key={t} value={t} />)}</datalist>
                 {!catalogs.streetTypes.includes(formData.street_type) && formData.street_type && (
                   <button onClick={() => saveToCatalog('street_types_catalog', 'name', formData.street_type)} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar Tipo</button>
                 )}
               </div>
 
-              <div className="md:col-span-5 relative">
+              <div className="md:col-span-4 relative">
                 <InputGroup label="Logradouro" placeholder="Nome da via" value={formData.street} onChange={(v: string) => handleChange('street', v)} list="street-name-list" />
                 <datalist id="street-name-list">{catalogs.streets.map(s => <option key={s.name} value={s.name} />)}</datalist>
                 {!catalogs.streets.some(s => s.name === formData.street) && formData.street && (
@@ -361,8 +371,12 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
                 )}
               </div>
 
-              <div className="md:col-span-2">
+              <div className="md:col-span-1">
                 <InputGroup label="Nº" placeholder="123" value={formData.number} onChange={(v: string) => handleChange('number', v)} />
+              </div>
+
+              <div className="md:col-span-3">
+                 <InputGroup label="Complemento" placeholder="Apto..." value={formData.complement} onChange={(v: string) => handleChange('complement', v)} />
               </div>
             </div>
           </div>
