@@ -181,7 +181,7 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
       neighborhood: formData.neighborhood || null,
       street_code: formData.street_code || null,
       street_type: formData.street_type || null,
-      // complement: formData.complement || null, // Comentado temporariamente até a migração do banco ser aplicada
+      complement: formData.complement || null, 
       street: formData.street || null,
       number: formData.number || null,
       phone: formData.phone || null,
@@ -246,8 +246,10 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
     setShowForm(!showForm);
   };
 
+  const normalize = (str: string) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
   const filteredPatients = patients.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    normalize(p.name).includes(normalize(searchTerm)) || 
     p.cns.includes(searchTerm)
   );
 

@@ -71,35 +71,62 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
 
   const searchCnes = async (term: string) => {
     if (!term) { setCnesSuggestions([]); return; }
-    const like = `%${term}%`;
-    const { data } = await supabase
-      .from('establishments')
-      .select('id,cnes,name')
-      .or(`name.ilike.${like},cnes.ilike.${like}`)
-      .limit(10);
-    setCnesSuggestions(data || []);
+    try {
+      const { data, error } = await supabase
+        .rpc('search_establishments', { search_term: term })
+        .limit(10);
+      if (error) throw error;
+      setCnesSuggestions(data || []);
+    } catch (error) {
+      console.warn('RPC Search failed, fallback to standard query');
+      const like = `%${term}%`;
+      const { data } = await supabase
+        .from('establishments')
+        .select('id,cnes,name')
+        .or(`name.ilike.${like},cnes.ilike.${like}`)
+        .limit(10);
+      setCnesSuggestions(data || []);
+    }
   };
 
   const searchProcedure = async (id: string, term: string) => {
     if (!term) { setProcedureSug(prev => ({ ...prev, [id]: [] })); return; }
-    const like = `%${term}%`;
-    const { data } = await supabase
-      .from('procedures_catalog')
-      .select('code,name')
-      .or(`name.ilike.${like},code.ilike.${like}`)
-      .limit(10);
-    setProcedureSug(prev => ({ ...prev, [id]: data || [] }));
+    try {
+      const { data, error } = await supabase
+        .rpc('search_procedures', { search_term: term })
+        .limit(10);
+      if (error) throw error;
+      setProcedureSug(prev => ({ ...prev, [id]: data || [] }));
+    } catch (error) {
+      console.warn('RPC Search failed, fallback to standard query');
+      const like = `%${term}%`;
+      const { data } = await supabase
+        .from('procedures_catalog')
+        .select('code,name')
+        .or(`name.ilike.${like},code.ilike.${like}`)
+        .limit(10);
+      setProcedureSug(prev => ({ ...prev, [id]: data || [] }));
+    }
   };
 
   const searchCbo = async (id: string, term: string) => {
     if (!term) { setCboSug(prev => ({ ...prev, [id]: [] })); return; }
-    const like = `%${term}%`;
-    const { data } = await supabase
-      .from('cbos')
-      .select('code,occupation')
-      .or(`occupation.ilike.${like},code.ilike.${like}`)
-      .limit(10);
-    setCboSug(prev => ({ ...prev, [id]: data || [] }));
+    try {
+      const { data, error } = await supabase
+        .rpc('search_cbos', { search_term: term })
+        .limit(10);
+      if (error) throw error;
+      setCboSug(prev => ({ ...prev, [id]: data || [] }));
+    } catch (error) {
+      console.warn('RPC Search failed, fallback to standard query');
+      const like = `%${term}%`;
+      const { data } = await supabase
+        .from('cbos')
+        .select('code,occupation')
+        .or(`occupation.ilike.${like},code.ilike.${like}`)
+        .limit(10);
+      setCboSug(prev => ({ ...prev, [id]: data || [] }));
+    }
   };
 
   const handleSave = async () => {

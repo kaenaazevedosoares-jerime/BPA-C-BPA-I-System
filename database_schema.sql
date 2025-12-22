@@ -1,6 +1,6 @@
 -- LRPD DATABASE SCHEMA
--- Version: 2.0.0
--- Last Updated: 2025-12-21
+-- Version: 2.1.0 (Updated with Search RPCs)
+-- Last Updated: 2025-02-22
 -- Description: Master schema for LRPD system containing all tables, policies, functions, and initial data.
 -- Rules: Follows strict migration guidelines (Idempotency, Error Handling, Atomic Operations)
 
@@ -217,8 +217,8 @@ CREATE TABLE IF NOT EXISTS public.neighborhoods_catalog ( name TEXT PRIMARY KEY 
 CREATE TABLE IF NOT EXISTS public.nationalities_catalog ( name TEXT PRIMARY KEY );
 CREATE TABLE IF NOT EXISTS public.races_catalog ( name TEXT PRIMARY KEY );
 CREATE TABLE IF NOT EXISTS public.ethnicities_catalog ( name TEXT PRIMARY KEY );
-CREATE TABLE IF NOT EXISTS public.street_types_catalog ( name TEXT PRIMARY KEY ); -- Added missing table def
-CREATE TABLE IF NOT EXISTS public.streets_catalog ( name TEXT PRIMARY KEY ); -- Added missing table def
+CREATE TABLE IF NOT EXISTS public.street_types_catalog ( name TEXT PRIMARY KEY );
+CREATE TABLE IF NOT EXISTS public.streets_catalog ( name TEXT PRIMARY KEY );
 
 -- =================================================================================================
 -- 5. SECURITY POLICIES (RLS)
@@ -240,8 +240,6 @@ ALTER TABLE public.ethnicities_catalog ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profissionais ENABLE ROW LEVEL SECURITY;
 
 -- Define Policies (MVP: Authenticated users have full access)
--- In production, these should be refined based on 'permissions' column in 'profiles'
-
 DO $$
 BEGIN
     -- Profiles
@@ -284,8 +282,6 @@ BEGIN
     CREATE POLICY "Leitura de bairros" ON public.neighborhoods_catalog FOR SELECT USING (true);
     DROP POLICY IF EXISTS "Escrita de bairros" ON public.neighborhoods_catalog;
     CREATE POLICY "Escrita de bairros" ON public.neighborhoods_catalog FOR INSERT WITH CHECK (auth.role() = 'authenticated');
-
-    -- Add similar policies for other aux tables...
 END $$;
 
 -- =================================================================================================
@@ -293,7 +289,6 @@ END $$;
 -- =================================================================================================
 
 -- Fix Missing Profiles (Sync auth.users -> public.profiles)
--- This ensures that any user created in Auth but missing in Profiles (legacy or error) gets created.
 DO $$
 BEGIN
     INSERT INTO public.profiles (id, full_name, role, permissions)
@@ -310,3 +305,59 @@ BEGIN
         RAISE NOTICE 'Synchronized missing profiles from auth.users.';
     END IF;
 END $$;
+
+-- =================================================================================================
+-- 7. SEARCH FUNCTIONS (RPC) - Added 2025-02-22
+-- =================================================================================================
+
+-- Enable Unaccent Extension
+CREATE EXTENSION IF NOT EXISTS unaccent;
+
+-- Search Patients
+CREATE OR REPLACE FUNCTION search_patients(search_term TEXT)
+RETURNS SETOF patients AS $$
+BEGIN
+  RETURN QUERY
+  SELECT *
+  FROM patients
+  WHERE unaccent(name) ILIKE unaccent('%' || search_term || '%')
+     OR cns ILIKE '%' || search_term || '%';
+END;
+$$ LANGUAGE plpgsql;
+
+-- Search Procedures
+CREATE OR REPLACE FUNCTION search_procedures(search_term TEXT)
+RETURNS SETOF procedures_catalog AS $$
+BEGIN
+  RETURN QUERY
+  SELECT *
+  FROM procedures_catalog
+  WHERE unaccent(name) ILIKE unaccent('%' || search_term || '%')
+     OR code ILIKE '%' || search_term || '%'
+     OR unaccent(category) ILIKE unaccent('%' || search_term || '%');
+END;
+$$ LANGUAGE plpgsql;
+
+-- Search Establishments
+CREATE OR REPLACE FUNCTION search_establishments(search_term TEXT)
+RETURNS SETOF establishments AS $$
+BEGIN
+  RETURN QUERY
+  SELECT *
+  FROM establishments
+  WHERE unaccent(name) ILIKE unaccent('%' || search_term || '%')
+     OR cns ILIKE '%' || search_term || '%';
+END;
+$$ LANGUAGE plpgsql;
+
+-- Search CBOs
+CREATE OR REPLACE FUNCTION search_cbos(search_term TEXT)
+RETURNS SETOF cbos AS $$
+BEGIN
+  RETURN QUERY
+  SELECT *
+  FROM cbos
+  WHERE unaccent(occupation) ILIKE unaccent('%' || search_term || '%')
+     OR code ILIKE '%' || search_term || '%';
+END;
+$$ LANGUAGE plpgsql;

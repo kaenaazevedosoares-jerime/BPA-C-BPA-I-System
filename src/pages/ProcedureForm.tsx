@@ -187,17 +187,28 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
       setSearchError(false);
       try {
         const { data, error } = await supabase
-          .from('patients')
-          .select('*')
-          .or(`name.ilike.%${searchTerm}%,cns.ilike.%${searchTerm}%`)
+          .rpc('search_patients', { search_term: searchTerm })
           .limit(5);
 
         if (error) throw error;
         setSearchResults(data || []);
-      } catch (error) {
-        console.error('Erro na busca de pacientes:', error);
-        setSearchError(true);
-        setSearchResults([]);
+      } catch (error: any) {
+        console.warn('RPC Search failed, falling back to standard ILIKE:', error.message);
+        
+        // Fallback for when RPC is missing (SQL not run)
+        const { data, error: fallbackError } = await supabase
+          .from('patients')
+          .select('*')
+          .or(`name.ilike.%${searchTerm}%,cns.ilike.%${searchTerm}%`)
+          .limit(5);
+          
+        if (fallbackError) {
+           console.error('Fallback search failed:', fallbackError);
+           setSearchError(true);
+           setSearchResults([]);
+        } else {
+           setSearchResults(data || []);
+        }
       } finally {
         setIsSearching(false);
       }
@@ -219,16 +230,27 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
       if (initialId && selectedProcedure && procSearchTerm === selectedProcedure.code) return;
 
       setIsProcSearching(true);
-      const { data, error } = await supabase
-        .from('procedures_catalog')
-        .select('*')
-        .or(`code.ilike.%${procSearchTerm}%,name.ilike.%${procSearchTerm}%`)
-        .limit(5);
+      try {
+        const { data, error } = await supabase
+          .rpc('search_procedures', { search_term: procSearchTerm })
+          .limit(5);
 
-      if (!error && data) {
-        setProcSearchResults(data);
+        if (error) throw error;
+        setProcSearchResults(data || []);
+      } catch (error: any) {
+        console.warn('RPC Search failed, falling back to standard ILIKE:', error.message);
+        const { data, error: fallbackError } = await supabase
+          .from('procedures_catalog')
+          .select('*')
+          .or(`code.ilike.%${procSearchTerm}%,name.ilike.%${procSearchTerm}%`)
+          .limit(5);
+
+        if (!fallbackError && data) {
+          setProcSearchResults(data);
+        }
+      } finally {
+        setIsProcSearching(false);
       }
-      setIsProcSearching(false);
     };
 
     const timeoutId = setTimeout(searchProcedures, 300);
