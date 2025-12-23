@@ -8,6 +8,7 @@ export type PermissionKey =
   | 'view_stock'
   | 'view_procedure_catalog'
   | 'view_cbo_catalog'
+  | 'view_street_types'
   
   // Actions / Buttons
   | 'create_patient'
@@ -27,6 +28,7 @@ export const ALL_PERMISSIONS: { key: PermissionKey; label: string; group: string
   { key: 'view_stock', label: 'Ver Estoque', group: 'Menu Lateral' },
   { key: 'view_procedure_catalog', label: 'Ver Catálogo de Procedimentos', group: 'Menu Lateral' },
   { key: 'view_cbo_catalog', label: 'Ver Catálogo CBO', group: 'Menu Lateral' },
+  { key: 'view_street_types', label: 'Ver Tipos de Logradouro', group: 'Menu Lateral' },
   
   { key: 'create_patient', label: 'Cadastrar Paciente', group: 'Ações' },
   { key: 'edit_patient', label: 'Editar Paciente', group: 'Ações' },

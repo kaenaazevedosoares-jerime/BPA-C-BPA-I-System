@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import PatientRegistration from './PatientRegistration'; // Import PatientRegistration
 
 interface ProcedureFormProps {
   onCancel: () => void;
@@ -54,6 +55,8 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
   const [isProcSearching, setIsProcSearching] = useState(false);
   const [showProcResults, setShowProcResults] = useState(false);
   const [showProcDetails, setShowProcDetails] = useState(false);
+  const [showPatientRegistration, setShowPatientRegistration] = useState(false); // State to toggle Patient Registration
+  const [registrationInitialData, setRegistrationInitialData] = useState<{cns?: string, name?: string}>({});
 
   // Date Helpers
   const formatDateToMask = (isoStr: string) => {
@@ -274,17 +277,21 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
   };
 
   const handleSave = async () => {
+    // Basic validation
     if (!patientId || !procedureCode || !dateService) {
       alert('Por favor, preencha todos os campos obrigatórios (Paciente, Data Atendimento, Procedimento).');
       return;
     }
+
+    // Ensure status is selected (default fallback)
+    const finalStatus = status || 'Agendado';
 
     setIsSaving(true);
     try {
       const payload = {
         patient_id: patientId,
         procedure_code: procedureCode,
-        status: status,
+        status: finalStatus,
         date_service: new Date(dateService).toISOString(),
         date_scheduling: dateScheduling ? new Date(dateScheduling).toISOString() : null,
         notes: notes
@@ -320,6 +327,25 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
     return (
       <div className="flex justify-center items-center h-full min-h-[400px]">
         <span className="material-symbols-outlined animate-spin text-primary text-4xl">progress_activity</span>
+      </div>
+    );
+  }
+
+  // Show Patient Registration if active
+  if (showPatientRegistration) {
+    return (
+      <div className="animate-fade-in">
+        <PatientRegistration 
+          onCancel={() => setShowPatientRegistration(false)}
+          onSave={() => {
+             setShowPatientRegistration(false);
+             // Re-trigger search to find the newly added patient
+             if (registrationInitialData.name) setSearchTerm(registrationInitialData.name);
+          }}
+          userRole="operator" // Or pass current user role
+          initialCns={registrationInitialData.cns}
+          initialName={registrationInitialData.name}
+        />
       </div>
     );
   }
@@ -389,8 +415,22 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
                     </button>
                   ))
                 ) : searchTerm.length > 0 ? (
-                  <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-xs font-medium">
-                    Nenhum paciente encontrado
+                  <div className="p-4 text-center">
+                    <p className="text-slate-500 dark:text-slate-400 text-xs font-medium mb-2">Nenhum paciente encontrado</p>
+                    <button 
+                      onClick={() => {
+                        const isCns = /^\d+$/.test(searchTerm);
+                        setRegistrationInitialData({
+                          cns: isCns ? searchTerm : '',
+                          name: !isCns ? searchTerm : ''
+                        });
+                        setShowPatientRegistration(true);
+                      }}
+                      className="text-xs font-bold text-primary bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 mx-auto"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">person_add</span>
+                      Cadastrar Paciente
+                    </button>
                   </div>
                 ) : null}
               </div>
@@ -436,6 +476,13 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
                   setDateServiceText(val);
                   const iso = parseDateToISO(val);
                   if (iso) setDateService(iso);
+                }}
+                onBlur={() => {
+                  // Validate on blur if the date is complete
+                  if (dateServiceText.length >= 10 && !dateService) {
+                    const iso = parseDateToISO(dateServiceText + (dateServiceText.length === 10 ? ' 00:00' : ''));
+                    if (iso) setDateService(iso);
+                  }
                 }}
                 className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 pr-12 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm" 
               />

@@ -32,6 +32,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, currentView, onNavig
     { id: 'profissionais', label: 'Profissional', icon: 'stethoscope', permission: 'view_profissionais' },
     { id: 'procedure-catalog', label: 'Catálogo Proced.', icon: 'list_alt', permission: 'view_procedure_catalog' },
     { id: 'cbo-reg', label: 'Catálogo CBO', icon: 'clinical_notes', permission: 'view_cbo_catalog' },
+    { id: 'street-type-catalog', label: 'Tipos de Lograd.', icon: 'signpost', permission: 'view_street_types' },
     { id: 'establishment-reg', label: 'Estabelecimento', icon: 'account_balance', permission: 'view_establishment' },
     // { id: 'stock', label: 'Estoque', icon: 'inventory_2', permission: 'view_stock' }, // Placeholder for future
     { id: 'settings', label: 'Configurações', icon: 'settings', adminOnly: true },

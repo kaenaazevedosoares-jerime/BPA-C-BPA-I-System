@@ -16,6 +16,7 @@ export type View =
   | 'cbo-reg' 
   | 'profissionais' 
   | 'profissionais-form'
+  | 'street-type-catalog'
   | 'settings';
 
 export interface UserProfile {
@@ -34,4 +35,11 @@ export interface ProductionItem {
   timeLabel: string;
   icon: string;
   colorClass: string;
+}
+
+export interface WhatsAppTemplate {
+  id: string;
+  title: string;
+  message: string;
+  created_at?: string;
 }

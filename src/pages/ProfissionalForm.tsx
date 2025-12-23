@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { formatTitleCase } from '../utils/textUtils';
 
 interface ProfissionalFormProps {
   onCancel: () => void;
@@ -110,14 +111,26 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
       if (isEdit && initialId) {
         const { error } = await supabase
           .from('profissionais')
-          .update(formData)
+          .update({
+            ...formData,
+            nome: formatTitleCase(formData.nome),
+            profissao: formatTitleCase(formData.profissao),
+            endereco: formatTitleCase(formData.endereco),
+            email: formData.email?.toLowerCase()
+          })
           .eq('id', initialId);
 
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from('profissionais')
-          .insert([formData]);
+          .insert([{
+            ...formData,
+            nome: formatTitleCase(formData.nome),
+            profissao: formatTitleCase(formData.profissao),
+            endereco: formatTitleCase(formData.endereco),
+            email: formData.email?.toLowerCase()
+          }]);
 
         if (error) throw error;
       }

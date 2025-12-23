@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { formatTitleCase } from '../utils/textUtils';
 
 interface ProcedureCatalogProps {
   onCancel: () => void;
@@ -63,7 +64,7 @@ const ProcedureCatalog: React.FC<ProcedureCatalogProps> = ({ onCancel, onSave })
     if (editingId) {
       const { error } = await supabase
         .from('procedures_catalog')
-        .update({ code, name, category })
+        .update({ code, name: formatTitleCase(name), category: formatTitleCase(category) })
         .eq('id', editingId);
       setLoading(false);
       if (error) {
@@ -78,7 +79,7 @@ const ProcedureCatalog: React.FC<ProcedureCatalogProps> = ({ onCancel, onSave })
 
     const { error } = await supabase
       .from('procedures_catalog')
-      .insert([{ code, name, category }]);
+      .insert([{ code, name: formatTitleCase(name), category: formatTitleCase(category) }]);
 
     setLoading(false);
     if (error) {

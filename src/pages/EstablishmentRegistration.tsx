@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import EstablishmentCard from '../components/EstablishmentCard';
+import { formatTitleCase } from '../utils/textUtils';
 
 interface EstablishmentRegistrationProps {
   onCancel: () => void;
@@ -73,7 +74,16 @@ const EstablishmentRegistration: React.FC<EstablishmentRegistrationProps> = ({ o
     if (editingId) {
       const { error } = await supabase
         .from('establishments')
-        .update(formData)
+        .update({
+          ...formData,
+          name: formatTitleCase(formData.name),
+          social_reason: formatTitleCase(formData.social_reason),
+          responsible_tech: formatTitleCase(formData.responsible_tech),
+          street: formatTitleCase(formData.street),
+          neighborhood: formatTitleCase(formData.neighborhood),
+          state: formData.state?.toUpperCase(), // Sigla do estado usually uppercase
+          email: formData.email?.toLowerCase()
+        })
         .eq('id', editingId);
       setLoading(false);
       if (error) {
@@ -90,7 +100,16 @@ const EstablishmentRegistration: React.FC<EstablishmentRegistrationProps> = ({ o
 
     const { error } = await supabase
       .from('establishments')
-      .insert([formData]);
+      .insert([{
+        ...formData,
+        name: formatTitleCase(formData.name),
+        social_reason: formatTitleCase(formData.social_reason),
+        responsible_tech: formatTitleCase(formData.responsible_tech),
+        street: formatTitleCase(formData.street),
+        neighborhood: formatTitleCase(formData.neighborhood),
+        state: formData.state?.toUpperCase(),
+        email: formData.email?.toLowerCase()
+      }]);
 
     setLoading(false);
     if (error) {

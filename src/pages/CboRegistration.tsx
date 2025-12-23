@@ -1,6 +1,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { formatTitleCase } from '../utils/textUtils';
 
 interface CboRegistrationProps {
   onCancel: () => void;
@@ -56,7 +57,7 @@ const CboRegistration: React.FC<CboRegistrationProps> = ({ onCancel, onSave }) =
     setLoading(true);
     const { error } = await supabase
       .from('cbos')
-      .insert([{ code, occupation }]);
+      .insert([{ code, occupation: formatTitleCase(occupation) }]);
 
     setLoading(false);
     if (error) {

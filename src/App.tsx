@@ -14,6 +14,7 @@ import ProcedureCatalog from './pages/ProcedureCatalog';
 import CboRegistration from './pages/CboRegistration';
 import ProfissionaisList from './pages/ProfissionaisList';
 import ProfissionalForm from './pages/ProfissionalForm';
+import StreetTypeCatalog from './pages/StreetTypeCatalog';
 import Settings from './pages/Settings';
 import { supabase } from './lib/supabase';
 
@@ -163,6 +164,8 @@ const App: React.FC = () => {
         return <ProfissionaisList onAddNew={() => navigateTo('profissionais-form')} onEdit={handleEditProfissional} />;
       case 'profissionais-form':
         return <ProfissionalForm onCancel={() => navigateTo('profissionais')} onSave={() => navigateTo('profissionais')} initialId={editingId} />;
+      case 'street-type-catalog':
+        return <StreetTypeCatalog onCancel={() => navigateTo('dashboard')} />;
       case 'settings':
         return <Settings currentUser={userProfile} />;
       default:

@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { PatientImportModal } from '../components/PatientImportModal';
+import { formatTitleCase } from '../utils/textUtils';
 
 // Interface correspondente à tabela 'patients' no banco de dados
 interface Patient {
@@ -26,35 +28,42 @@ interface PatientRegistrationProps {
   onCancel: () => void;
   onSave: () => void;
   userRole?: string;
+  initialCns?: string;
+  initialName?: string;
 }
 
-const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onSave, userRole }) => {
+const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onSave, userRole, initialCns, initialName }) => {
   const [loading, setLoading] = useState(false);
   const [fetchingPatients, setFetchingPatients] = useState(true);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm] = useState(!!(initialCns || initialName)); // Open form if initial data provided
+  const [showImportModal, setShowImportModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const [catalogs, setCatalogs] = useState<{
     neighborhoods: string[];
-    streetTypes: string[];
+    streetTypes: { code: string; name: string }[];
     streets: { code: string; name: string }[];
+    complements: string[];
     nationalities: string[];
     races: string[];
     ethnicities: string[];
+    savedCeps: string[]; // Cache of saved CEPs to toggle button
   }>({
     neighborhoods: [],
     streetTypes: [],
     streets: [],
     nationalities: [],
     races: [],
-    ethnicities: []
+    ethnicities: [],
+    savedCeps: [],
+    complements: []
   });
 
   const initialFormState = {
-    cns: '',
-    name: '',
+    cns: initialCns || '',
+    name: initialName || '',
     birth_date: '',
     gender: 'Masculino',
     nationality: 'Brasileira',
@@ -77,22 +86,26 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
 
   // Carregar Catálogos
   const fetchCatalogs = useCallback(async () => {
-    const [neighRes, typeRes, streetRes, natRes, raceRes, ethRes] = await Promise.all([
-      supabase.from('neighborhoods_catalog').select('name'),
-      supabase.from('street_types_catalog').select('name'),
-      supabase.from('streets_catalog').select('code, name'),
-      supabase.from('nationalities_catalog').select('name'),
-      supabase.from('races_catalog').select('name'),
-      supabase.from('ethnicities_catalog').select('name')
+    const [neighRes, typeRes, streetRes, compRes, natRes, raceRes, ethRes, cepRes] = await Promise.all([
+      supabase.from('neighborhoods_catalog').select('name').order('name'),
+      supabase.from('street_types_catalog').select('code, name').order('name'),
+      supabase.from('streets_catalog').select('code, name').limit(10000).order('name'),
+      supabase.from('complements_catalog').select('name').order('name'),
+      supabase.from('nationalities_catalog').select('name').order('name'),
+      supabase.from('races_catalog').select('name').order('name'),
+      supabase.from('ethnicities_catalog').select('name').order('name'),
+      supabase.from('zip_codes_catalog').select('cep')
     ]);
 
     setCatalogs({
       neighborhoods: neighRes.data?.map(n => n.name) || [],
-      streetTypes: typeRes.data?.map(t => t.name) || [],
+      streetTypes: typeRes.data || [],
       streets: streetRes.data || [],
+      complements: compRes.data?.map(c => c.name) || [],
       nationalities: natRes.data?.map(n => n.name) || [],
       races: raceRes.data?.map(n => n.name) || [],
-      ethnicities: ethRes.data?.map(n => n.name) || []
+      ethnicities: ethRes.data?.map(n => n.name) || [],
+      savedCeps: cepRes.data?.map(c => c.cep) || []
     });
   }, []);
 
@@ -118,16 +131,64 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
   }, [fetchCatalogs, fetchPatients]);
 
   const handleChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    let newValue = value;
+    
+    // Sync Logic for Street Code <-> Street Type
+    if (field === 'street_code') {
+      const found = catalogs.streetTypes.find(t => t.code === value);
+      if (found) {
+        setFormData(prev => ({ ...prev, street_code: value, street_type: found.name }));
+        return;
+      }
+    } else if (field === 'street_type') {
+      const found = catalogs.streetTypes.find(t => t.name.toLowerCase() === value.toLowerCase());
+      if (found && found.code) {
+        setFormData(prev => ({ ...prev, street_type: value, street_code: found.code }));
+        return;
+      }
+    } else if (field === 'phone') {
+      // Phone Mask (11 digits: (XX) XXXXX-XXXX)
+      const digits = value.replace(/\D/g, '');
+      if (digits.length <= 11) {
+        newValue = digits.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
+        if (digits.length < 11 && digits.length > 2) {
+           // Partial mask while typing
+           newValue = digits.replace(/(\d{2})(\d{0,5})/, '($1) $2');
+        }
+      } else {
+        return; // Block more than 11 digits
+      }
+    }
+
+    setFormData(prev => ({ ...prev, [field]: newValue }));
 
     // Auto-CEP Logic
-    if (field === 'zip_code' && value.replace(/\D/g, '').length === 8) {
-      handleCepLookup(value.replace(/\D/g, ''));
+    if (field === 'zip_code' && newValue.replace(/\D/g, '').length === 8) {
+      handleCepLookup(newValue.replace(/\D/g, ''));
     }
   };
 
   const handleCepLookup = async (cep: string) => {
     try {
+      // 1. Try Local Catalog First
+      const { data: localData } = await supabase
+        .from('zip_codes_catalog')
+        .select('*')
+        .eq('cep', cep)
+        .single();
+
+      if (localData) {
+        setFormData(prev => ({
+          ...prev,
+          city: localData.city,
+          state: localData.state,
+          neighborhood: localData.neighborhood || prev.neighborhood,
+          street: localData.street || prev.street
+        }));
+        return;
+      }
+
+      // 2. Try ViaCEP
       const response = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
       const data = await response.json();
       if (!data.erro) {
@@ -141,6 +202,29 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
       }
     } catch (error) {
       console.error("Erro ao buscar CEP:", error);
+    }
+  };
+
+  const saveCepToCatalog = async () => {
+    if (!formData.zip_code || formData.zip_code.length < 8) return;
+    const cep = formData.zip_code.replace(/\D/g, '');
+    
+    const payload = {
+      cep,
+      street: formatTitleCase(formData.street),
+      neighborhood: formatTitleCase(formData.neighborhood),
+      city: formatTitleCase(formData.city),
+      state: formData.state?.toUpperCase()
+    };
+
+    const { error } = await supabase.from('zip_codes_catalog').upsert([payload]);
+    
+    if (error) {
+      console.error('Erro ao salvar CEP:', error.message);
+      alert(`Erro ao salvar CEP: ${error.message}`);
+    } else {
+      alert('CEP salvo no catálogo local com sucesso!');
+      fetchCatalogs();
     }
   };
 
@@ -164,28 +248,58 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
   };
 
   const handleSave = async () => {
-    if (!formData.name || !formData.cns) return alert('Nome e CNS são obrigatórios');
+    // Validate Mandatory Fields
+    const requiredFields = {
+      cns: 'Cartão SUS',
+      name: 'Nome Completo',
+      birth_date: 'Data de Nascimento',
+      gender: 'Sexo',
+      nationality: 'Nacionalidade',
+      race: 'Raça / Cor',
+      ethnicity: 'Etnia',
+      zip_code: 'CEP',
+      city: 'Município',
+      neighborhood: 'Bairro',
+      street_code: 'Cód. Lograd.',
+      street_type: 'Tipo Lograd.',
+      street: 'Logradouro',
+      number: 'Número',
+      phone: 'Telefone / Celular'
+    };
+
+    for (const [key, label] of Object.entries(requiredFields)) {
+      if (!formData[key as keyof typeof formData]) {
+        return alert(`O campo "${label}" é obrigatório.`);
+      }
+    }
+
+    // Phone Validation (Strict 11 digits)
+    const phoneDigits = formData.phone.replace(/\D/g, '');
+    if (phoneDigits.length !== 11) {
+      return alert('O telefone deve conter DDD + 9 dígitos (total 11 números).');
+    }
+
     setLoading(true);
     
     // Filtra campos que não existem no banco
     const dataToSave = {
       cns: formData.cns,
-      name: formData.name,
+      name: formatTitleCase(formData.name),
       birth_date: formData.birth_date || null,
       gender: formData.gender,
-      nationality: formData.nationality || null,
-      race: formData.race || null,
-      ethnicity: formData.ethnicity || null,
+      nationality: formatTitleCase(formData.nationality) || null,
+      race: formatTitleCase(formData.race) || null,
+      ethnicity: formatTitleCase(formData.ethnicity) || null,
       zip_code: formData.zip_code || null,
-      city: formData.city || null,
-      neighborhood: formData.neighborhood || null,
+      city: formatTitleCase(formData.city) || null,
+      neighborhood: formatTitleCase(formData.neighborhood) || null,
       street_code: formData.street_code || null,
-      street_type: formData.street_type || null,
-      complement: formData.complement || null, 
-      street: formData.street || null,
+      street_type: formatTitleCase(formData.street_type) || null,
+      complement: formatTitleCase(formData.complement) || null, 
+      street: formatTitleCase(formData.street) || null,
       number: formData.number || null,
       phone: formData.phone || null,
-      email: formData.email || null
+      email: formData.email?.toLowerCase() || null
       // state e complement removidos
     };
 
@@ -203,6 +317,12 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
       if (error) {
         alert('Erro ao salvar paciente: ' + error.message);
       } else {
+        // If initial data was provided (came from another flow), call onSave to return
+        if (initialCns || initialName) {
+           onSave(); 
+           return;
+        }
+
         setShowForm(false);
         setEditingId(null);
         setFormData(initialFormState);
@@ -266,13 +386,25 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
           <p className="text-slate-500 dark:text-slate-400 text-sm">Gerencie o cadastro de usuários e pacientes do sistema.</p>
         </div>
         
-        <button 
-          onClick={toggleForm}
-          className={`h-12 px-6 rounded-xl font-bold transition-all flex items-center gap-2 shadow-sm ${showForm ? 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-white' : 'bg-primary text-white shadow-primary/30'}`}
-        >
-          <span className="material-symbols-outlined">{showForm ? 'close' : 'person_add'}</span>
-          {showForm ? 'Cancelar' : 'Novo Paciente'}
-        </button>
+        <div className="flex gap-3">
+          {!showForm && (
+            <button 
+              onClick={() => setShowImportModal(true)}
+              className="h-12 px-4 rounded-xl font-bold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 transition-all flex items-center gap-2 hover:shadow-md hover:bg-green-200 dark:hover:bg-green-900/50"
+            >
+              <span className="material-symbols-outlined">upload_file</span>
+              <span className="hidden sm:inline">Importar Excel</span>
+            </button>
+          )}
+
+          <button 
+            onClick={toggleForm}
+            className={`h-12 px-6 rounded-xl font-bold transition-all flex items-center gap-2 shadow-sm ${showForm ? 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-white' : 'bg-primary text-white shadow-primary/30'}`}
+          >
+            <span className="material-symbols-outlined">{showForm ? 'close' : 'person_add'}</span>
+            {showForm ? 'Cancelar' : 'Novo Paciente'}
+          </button>
+        </div>
       </div>
 
       {showForm ? (
@@ -334,7 +466,12 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
             </h3>
             
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <InputGroup label="CEP" placeholder="00000-000" icon="search" value={formData.zip_code} onChange={(v: string) => handleChange('zip_code', v)} />
+              <div className="relative">
+                <InputGroup label="CEP" placeholder="00000-000" icon="search" value={formData.zip_code} onChange={(v: string) => handleChange('zip_code', v)} />
+                {formData.zip_code && formData.zip_code.replace(/\D/g, '').length === 8 && !catalogs.savedCeps.includes(formData.zip_code.replace(/\D/g, '')) && (
+                  <button onClick={saveCepToCatalog} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar CEP</button>
+                )}
+              </div>
               <div className="md:col-span-2">
                 <InputGroup label="Município" placeholder="Preenchido via CEP" value={formData.city} onChange={(v: string) => handleChange('city', v)} />
               </div>
@@ -350,35 +487,32 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
               <div className="md:col-span-2 relative">
                 <InputGroup label="Cód. Lograd." placeholder="Código" value={formData.street_code} onChange={(v: string) => handleChange('street_code', v)} list="street-code-list" />
-                <datalist id="street-code-list">{catalogs.streets.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}</datalist>
-                {/* Botão para salvar código manualmente se necessário */}
-                {formData.street_code && !catalogs.streets.some(s => s.code === formData.street_code) && (
-                   <button onClick={() => saveToCatalog('streets_catalog', 'code', formData.street_code, 'name', formData.street || 'Novo Logradouro')} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar Código</button>
-                )}
+                <datalist id="street-code-list">{catalogs.streetTypes.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}</datalist>
               </div>
 
               <div className="md:col-span-2 relative">
                 <InputGroup label="Tipo Lograd." placeholder="Rua..." value={formData.street_type} onChange={(v: string) => handleChange('street_type', v)} list="type-list" />
-                <datalist id="type-list">{catalogs.streetTypes.map(t => <option key={t} value={t} />)}</datalist>
-                {!catalogs.streetTypes.includes(formData.street_type) && formData.street_type && (
-                  <button onClick={() => saveToCatalog('street_types_catalog', 'name', formData.street_type)} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar Tipo</button>
-                )}
+                <datalist id="type-list">{catalogs.streetTypes.map(t => <option key={t.name} value={t.name} />)}</datalist>
               </div>
 
               <div className="md:col-span-4 relative">
                 <InputGroup label="Logradouro" placeholder="Nome da via" value={formData.street} onChange={(v: string) => handleChange('street', v)} list="street-name-list" />
                 <datalist id="street-name-list">{catalogs.streets.map(s => <option key={s.name} value={s.name} />)}</datalist>
-                {!catalogs.streets.some(s => s.name === formData.street) && formData.street && (
+                {!catalogs.streets.some(s => s.name.toLowerCase() === formData.street.toLowerCase()) && formData.street && (
                   <button onClick={() => saveToCatalog('streets_catalog', 'name', formData.street, 'code', formData.street_code)} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar Logradouro</button>
                 )}
               </div>
 
-              <div className="md:col-span-1">
-                <InputGroup label="Nº" placeholder="123" value={formData.number} onChange={(v: string) => handleChange('number', v)} />
+              <div className="md:col-span-2">
+                <InputGroup label="Nº" placeholder="123" value={formData.number} onChange={(v: string) => handleChange('number', v)} className="min-w-[80px]" />
               </div>
 
-              <div className="md:col-span-3">
-                 <InputGroup label="Complemento" placeholder="Apto..." value={formData.complement} onChange={(v: string) => handleChange('complement', v)} />
+              <div className="md:col-span-2 relative">
+                 <InputGroup label="Complemento" placeholder="Apto..." value={formData.complement} onChange={(v: string) => handleChange('complement', v)} list="complement-list" />
+                 <datalist id="complement-list">{catalogs.complements.map(c => <option key={c} value={c} />)}</datalist>
+                 {!catalogs.complements.includes(formData.complement) && formData.complement && (
+                  <button onClick={() => saveToCatalog('complements_catalog', 'name', formData.complement)} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar Complemento</button>
+                )}
               </div>
             </div>
           </div>
@@ -508,12 +642,23 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
           </div>
         </div>
       )}
+
+      {showImportModal && (
+        <PatientImportModal 
+          onClose={() => setShowImportModal(false)}
+          onSuccess={() => {
+            setShowImportModal(false);
+            fetchPatients();
+            alert('Importação realizada com sucesso!');
+          }}
+        />
+      )}
     </div>
   );
 };
 
-const InputGroup = ({ label, placeholder, icon, type = "text", value, onChange, list }: any) => (
-  <div className="flex flex-col gap-2 group">
+const InputGroup = ({ label, placeholder, icon, type = "text", value, onChange, list, className }: any) => (
+  <div className={`flex flex-col gap-2 group ${className || ''}`}>
     <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{label}</label>
     <div className="relative">
       <input 
