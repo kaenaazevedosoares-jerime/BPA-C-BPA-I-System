@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { WhatsAppTemplate } from '../types';
+import { WhatsAppTemplate, UserProfile } from '../types';
+import ProcedureImportModal from '../components/ProcedureImportModal';
 
 interface ProcedureListProps {
   onAddNew: () => void;
@@ -32,6 +33,8 @@ interface ProcedureItem {
   phone: string;
   street_code: string;
   street_type: string;
+  // New fields
+  sia_processed?: boolean;
 }
 
 const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
@@ -39,10 +42,15 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('Todos');
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterSia, setFilterSia] = useState<'all' | 'processed' | 'pending'>('all');
+  const [dateStart, setDateStart] = useState('');
+  const [dateEnd, setDateEnd] = useState('');
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
   // WhatsApp Modal State
   const [showWhatsApp, setShowWhatsApp] = useState(false);
   const [whatsAppItem, setWhatsAppItem] = useState<ProcedureItem | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const fetchProcedures = async () => {
     try {
@@ -50,7 +58,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
       const { data: productionData, error: productionError } = await supabase
         .from('procedure_production')
         .select(`
-          id, status, date_service, date_scheduling, procedure_code,
+          id, status, date_service, date_scheduling, procedure_code, sia_processed,
           patients (
             name, cns, birth_date, gender, nationality, race, ethnicity,
             zip_code, city, neighborhood, street, number, phone,
@@ -81,9 +89,11 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         const status = item.status || 'Agendado';
         
         let statusColor = 'text-slate-500';
-        if (status === 'Em Produção') statusColor = 'text-primary';
-        else if (status === 'Concluído') statusColor = 'text-emerald-500';
-        else if (status === 'Agendado') statusColor = 'text-yellow-500';
+        if (status === 'Em Produção' || status === 'Em Atendimento' || status === 'Consulta/Molde') statusColor = 'text-primary';
+        else if (status === 'Finalizado' || status === 'Concluído') statusColor = 'text-emerald-500';
+        else if (status === 'Agendado' || status === 'Agendado Entrega') statusColor = 'text-yellow-500';
+        else if (status === 'Cancelado') statusColor = 'text-red-500';
+        else if (status === 'Agendado Entrega') statusColor = 'text-purple-500';
         
         const dateObj = new Date(item.date_service || item.created_at);
         const dateStr = dateObj.toLocaleDateString('pt-BR');
@@ -113,7 +123,8 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
           street: p.street || 'N/A',
           number: p.number || 'S/N',
           neighborhood: p.neighborhood || 'N/A',
-          phone: p.phone || ''
+          phone: p.phone || '',
+          sia_processed: item.sia_processed || false
         };
       });
 
@@ -132,9 +143,10 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
       setItems(prev => prev.map(item => {
         if (item.id === id) {
           let statusColor = 'text-slate-500';
-          if (newStatus === 'Em Produção') statusColor = 'text-primary';
-          else if (newStatus === 'Concluído') statusColor = 'text-emerald-500';
-          else if (newStatus === 'Agendado') statusColor = 'text-yellow-500';
+          if (newStatus === 'Em Produção' || newStatus === 'Em Atendimento' || newStatus === 'Consulta/Molde') statusColor = 'text-primary';
+          else if (newStatus === 'Finalizado' || newStatus === 'Concluído') statusColor = 'text-emerald-500';
+          else if (newStatus === 'Agendado' || newStatus === 'Agendado Entrega') statusColor = 'text-yellow-500';
+          else if (newStatus === 'Cancelado') statusColor = 'text-red-500';
           return { ...item, status: newStatus, statusColor };
         }
         return item;
@@ -157,17 +169,80 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
     }
   };
 
-  useEffect(() => { fetchProcedures(); }, []);
+  useEffect(() => { 
+    fetchProcedures(); 
+    
+    const fetchProfile = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+        if (data) setUserProfile(data);
+      }
+    };
+    fetchProfile();
+  }, []);
+
+  const handleToggleSia = async (id: string, currentVal: boolean) => {
+    if (userProfile?.role !== 'admin') {
+      alert('Apenas administradores podem alterar o status SIA.');
+      return;
+    }
+    
+    try {
+      const { error } = await supabase.from('procedure_production').update({ sia_processed: !currentVal }).eq('id', id);
+      if (error) throw error;
+      setItems(prev => prev.map(item => item.id === id ? { ...item, sia_processed: !currentVal } : item));
+    } catch (error) {
+      console.error('Erro ao atualizar SIA:', error);
+      alert('Erro ao atualizar status SIA.');
+    }
+  };
 
   const filteredItems = items.filter(item => {
-    const matchesFilter = filter === 'Todos' || item.status === filter;
+    const matchesFilter = filter === 'Todos' 
+      ? true 
+      : filter === 'Em Produção' 
+        ? (item.status === 'Consulta/Molde' || item.status === 'Agendado Entrega')
+        : item.status === filter;
+
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           item.cns.includes(searchTerm) || 
                           item.proc.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesFilter && matchesSearch;
+    const matchesSia = filterSia === 'all' 
+                       ? true 
+                       : filterSia === 'processed' 
+                         ? item.sia_processed 
+                         : !item.sia_processed;
+
+    let matchesDate = true;
+    if (dateStart || dateEnd) {
+       const itemDate = new Date(item.date.split('/').reverse().join('-')); // Convert DD/MM/YYYY to YYYY-MM-DD
+       if (dateStart) {
+         const start = new Date(dateStart);
+         if (itemDate < start) matchesDate = false;
+       }
+       if (dateEnd) {
+         const end = new Date(dateEnd);
+         end.setHours(23, 59, 59, 999); // End of day
+         if (itemDate > end) matchesDate = false;
+       }
+    }
+
+    return matchesFilter && matchesSearch && matchesSia && matchesDate;
   });
 
-  const getCount = (status: string) => items.filter(i => i.status === status).length;
+  const getCount = (status: string) => {
+    if (status === 'Em Produção') {
+      return items.filter(i => i.status === 'Consulta/Molde' || i.status === 'Agendado Entrega').length;
+    }
+    return items.filter(i => i.status === status).length;
+  };
+
+  const getStatusLabel = (filterName: string) => {
+     if (filterName === 'Todos') return 'Status';
+     if (filterName === 'Em Produção') return 'Em Produção';
+     return filterName;
+  }
 
   return (
     <div className="p-4 space-y-6 animate-fade-in max-w-4xl mx-auto w-full">
@@ -179,7 +254,37 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         />
       )}
 
+      {/* Import Modal */}
+      {showImportModal && (
+        <ProcedureImportModal 
+          onClose={() => setShowImportModal(false)}
+          onSuccess={() => {
+            setShowImportModal(false);
+            fetchProcedures();
+          }}
+        />
+      )}
+
       <div className="flex flex-col gap-4">
+        {/* Actions Bar */}
+        <div className="flex justify-end gap-3">
+          <button 
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center gap-2 bg-emerald-900/80 text-emerald-400 font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-900/20 hover:bg-emerald-900 transition-all duration-300 active:scale-95 border border-emerald-800 backdrop-blur-sm text-sm"
+          >
+            <span className="material-symbols-outlined text-[20px]">upload_file</span>
+            <span>Importar Excel</span>
+          </button>
+
+          <button 
+            onClick={onAddNew} 
+            className="flex items-center gap-2 bg-primary text-white font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-primary/40 hover:bg-primary-dark transition-all duration-300 active:scale-95 text-sm"
+          >
+            <span className="material-symbols-outlined text-[20px]">add</span>
+            <span>Novo Procedimento</span>
+          </button>
+        </div>
+
         {/* Search & Filter */}
         <div className="relative">
           <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-slate-400">
@@ -193,11 +298,54 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
           />
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-          <FilterButton label="Todos" active={filter === 'Todos'} onClick={() => setFilter('Todos')} />
-          <FilterButton label="Agendados" count={getCount('Agendado')} active={filter === 'Agendado'} onClick={() => setFilter('Agendado')} />
-          <FilterButton label="Em Produção" count={getCount('Em Produção')} active={filter === 'Em Produção'} onClick={() => setFilter('Em Produção')} />
-          <FilterButton label="Concluídos" count={getCount('Concluído')} active={filter === 'Concluído'} onClick={() => setFilter('Concluído')} />
+        {/* Date Filter Inputs */}
+        <div className="flex gap-2 items-center">
+           <input 
+             type="date"
+             value={dateStart}
+             onChange={(e) => setDateStart(e.target.value)}
+             className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-dark px-3 py-2 text-sm text-slate-600 dark:text-slate-300 outline-none focus:border-primary"
+           />
+           <span className="text-slate-400">-</span>
+           <input 
+             type="date"
+             value={dateEnd}
+             onChange={(e) => setDateEnd(e.target.value)}
+             className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-dark px-3 py-2 text-sm text-slate-600 dark:text-slate-300 outline-none focus:border-primary"
+           />
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide items-center">
+          <FilterButton label="Em Produção" count={getCount('Em Produção')} active={filter === 'Em Produção'} onClick={() => setFilter(filter === 'Em Produção' ? 'Todos' : 'Em Produção')} />
+          
+          {/* Status Dropdown Filter */}
+          <div className="relative">
+             <select
+               value={filter !== 'Em Produção' ? filter : 'Todos'}
+               onChange={(e) => setFilter(e.target.value)}
+               className="appearance-none bg-white dark:bg-surface-dark border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 rounded-full px-4 py-2 pr-8 text-sm font-semibold transition-all hover:border-slate-300 dark:hover:border-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+             >
+               <option value="Todos">Todos os Status</option>
+               <option value="Em Atendimento">Em Atendimento</option>
+               <option value="Consulta/Molde">Consulta/Molde</option>
+               <option value="Agendado Entrega">Agendado Entrega</option>
+               <option value="Finalizado">Finalizados</option>
+               <option value="Cancelado">Cancelados</option>
+             </select>
+             <span className="absolute right-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-[18px] text-slate-400 pointer-events-none">filter_list</span>
+          </div>
+          
+          <div className="w-px bg-slate-200 dark:bg-slate-700 mx-2 h-6"></div>
+          
+          <button 
+            onClick={() => setFilterSia(filterSia === 'all' ? 'processed' : filterSia === 'processed' ? 'pending' : 'all')}
+            className={`flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all active:scale-95 border ${filterSia !== 'all' ? (filterSia === 'processed' ? 'bg-green-500 text-white border-green-500' : 'bg-red-500 text-white border-red-500') : 'bg-white dark:bg-surface-dark border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'}`}
+          >
+            <span className="material-symbols-outlined text-[18px]">
+              {filterSia === 'all' ? 'filter_alt' : filterSia === 'processed' ? 'check_circle' : 'pending'}
+            </span>
+            {filterSia === 'all' ? 'Filtro SIA' : filterSia === 'processed' ? 'SIA Processado' : 'SIA Pendente'}
+          </button>
         </div>
       </div>
 
@@ -229,7 +377,16 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
 
                   {/* Info Column: Name & SUS */}
                   <div className="flex flex-col">
-                    <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight">{item.name}</h3>
+                    <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight flex items-center gap-2">
+                      {item.name}
+                      {/* Em Produção Badge - Highlighted */}
+                      {(item.status === 'Consulta/Molde' || item.status === 'Agendado Entrega') && (
+                        <span className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold border border-amber-200 dark:border-amber-800 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                          Em Produção
+                        </span>
+                      )}
+                    </h3>
                     <div className="flex items-center gap-1 mt-0.5 text-slate-500 dark:text-slate-400">
                       <span className="material-symbols-outlined text-[14px]">id_card</span>
                       <span className="text-[11px] font-mono font-medium">{item.cns}</span>
@@ -239,8 +396,21 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                   {/* Spacer */}
                   <div className="flex-1"></div>
 
-                  {/* Right Actions: WhatsApp (W) & Status (A) */}
+                  {/* Right Actions: SIA, WhatsApp (W) & Status (A) */}
                   <div className="flex items-center gap-2 sm:gap-4" onClick={(e) => e.preventDefault()}>
+                     {/* SIA Toggle Button */}
+                     <button 
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         handleToggleSia(item.id, item.sia_processed || false);
+                       }}
+                       className={`group flex items-center justify-center h-9 px-3 rounded-full transition-all border shadow-sm ${item.sia_processed ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'} ${userProfile?.role === 'admin' ? 'cursor-pointer active:scale-95' : 'cursor-default opacity-80'}`}
+                       title={userProfile?.role === 'admin' ? 'Alternar Status SIA' : 'Status SIA (Somente Admin)'}
+                     >
+                       <span className="text-[10px] font-bold uppercase mr-1">SIA</span>
+                       <div className={`w-2 h-2 rounded-full ${item.sia_processed ? 'bg-green-500' : 'bg-slate-400'}`}></div>
+                     </button>
+
                      {/* W: WhatsApp Button */}
                      <button 
                        onClick={(e) => {
@@ -299,9 +469,6 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         </div>
       )}
 
-      <button onClick={onAddNew} className="fixed bottom-8 right-8 z-40 flex items-center justify-center w-14 h-14 bg-primary text-white rounded-full shadow-lg shadow-primary/40 hover:bg-primary-dark transition-all duration-300 hover:scale-110 active:scale-95 group">
-        <span className="material-symbols-outlined text-[28px] group-hover:rotate-90 transition-transform">add</span>
-      </button>
     </div>
   );
 };
@@ -447,7 +614,7 @@ const DetailField = ({ label, value, isPrimary }: any) => {
 
 const StatusDropdown = ({ currentStatus, statusColor, onChange }: any) => {
   const [isOpen, setIsOpen] = useState(false);
-  const statusOptions = ['Agendado', 'Em Produção', 'Concluído', 'Entregue'];
+  const statusOptions = ['Agendado', 'Em Atendimento', 'Consulta/Molde', 'Agendado Entrega', 'Finalizado', 'Cancelado'];
   return (
     <div className="relative inline-block">
       <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded px-1.5 py-0.5 transition-colors">

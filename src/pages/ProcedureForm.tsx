@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import PatientRegistration from './PatientRegistration'; // Import PatientRegistration
+import PatientRegistration from './PatientRegistration';
+import { UserProfile } from '../types';
 
 interface ProcedureFormProps {
   onCancel: () => void;
@@ -29,9 +30,19 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [dateService, setDateService] = useState('');
   const [dateScheduling, setDateScheduling] = useState('');
-  const [status, setStatus] = useState('Em Produção');
+  const [status, setStatus] = useState<string>('Em Atendimento');
   const [procedureCode, setProcedureCode] = useState('');
+  const [isProsthesis, setIsProsthesis] = useState(false);
   
+  // Extra fields for Prosthesis workflow
+  const [dateDelivery, setDateDelivery] = useState('');
+  const [dateDeliveryText, setDateDeliveryText] = useState('');
+  
+  const [dateCancellation, setDateCancellation] = useState('');
+  const [dateCancellationText, setDateCancellationText] = useState('');
+  
+  const [siaProcessed, setSiaProcessed] = useState(false);
+
   // Date Text States (Masked)
   const [dateServiceText, setDateServiceText] = useState('');
   const [dateSchedulingText, setDateSchedulingText] = useState('');
@@ -55,8 +66,23 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
   const [isProcSearching, setIsProcSearching] = useState(false);
   const [showProcResults, setShowProcResults] = useState(false);
   const [showProcDetails, setShowProcDetails] = useState(false);
-  const [showPatientRegistration, setShowPatientRegistration] = useState(false); // State to toggle Patient Registration
+  const [showPatientRegistration, setShowPatientRegistration] = useState(false);
   const [registrationInitialData, setRegistrationInitialData] = useState<{cns?: string, name?: string}>({});
+
+  // User Profile State
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
+  // Fetch User Profile
+  useEffect(() => {
+    const fetchProfile = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+        if (data) setUserProfile(data);
+      }
+    };
+    fetchProfile();
+  }, []);
 
   // Date Helpers
   const formatDateToMask = (isoStr: string) => {
@@ -108,6 +134,17 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
     return `${y}-${m}-${dd}T${hh}:${mm}`;
   };
 
+  // Auto-Finalize Logic for Prosthesis
+  // Refined Logic:
+  // If Prosthesis AND (Status is NOT Finalized/Cancelled) AND DateDelivery is Valid -> Set Finalized
+  useEffect(() => {
+    if (isProsthesis && status !== 'Finalizado' && status !== 'Cancelado') {
+       if (dateDelivery && dateDelivery.length >= 16) {
+          setStatus('Finalizado');
+       }
+    }
+  }, [dateDelivery, isProsthesis, status]);
+
   // Fetch data for editing
   useEffect(() => {
     if (initialId) {
@@ -147,13 +184,30 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
 
             setStatus(data.status);
             setNotes(data.notes || '');
+            setSiaProcessed(data.sia_processed || false);
             
             if (data.date_service) {
               const d = new Date(data.date_service);
               d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
               const iso = d.toISOString().slice(0, 16);
               setDateService(iso);
-              setDateServiceText(formatDateToMask(data.date_service)); // Using original ISO
+              setDateServiceText(formatDateToMask(data.date_service)); 
+            }
+
+            if (data.date_delivery) {
+              const d = new Date(data.date_delivery);
+              d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+              const iso = d.toISOString().slice(0, 16);
+              setDateDelivery(iso);
+              setDateDeliveryText(formatDateToMask(data.date_delivery));
+            }
+
+            if (data.date_cancellation) {
+               const d = new Date(data.date_cancellation);
+               d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+               const iso = d.toISOString().slice(0, 16);
+               setDateCancellation(iso);
+               setDateCancellationText(formatDateToMask(data.date_cancellation));
             }
 
             if (data.date_scheduling) {
@@ -274,7 +328,35 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
     setProcSearchTerm(procedure.code);
     setShowProcResults(false);
     setShowProcDetails(true);
+    
+    // Check if it's Prosthesis
+    const isProsthesisCheck = procedure.name.toLowerCase().includes('prótese') || procedure.name.toLowerCase().includes('protese');
+    setIsProsthesis(isProsthesisCheck);
+    
+    // Auto-set status if creating new
+    if (!initialId) {
+      if (isProsthesisCheck) {
+        setStatus('Consulta/Molde');
+      } else {
+        setStatus('Em Atendimento');
+      }
+    } else {
+      // If editing and switching types, ensure valid status
+      if (isProsthesisCheck) {
+         if (status === 'Em Atendimento') setStatus('Consulta/Molde');
+      } else {
+         if (status === 'Consulta/Molde' || status === 'Agendado Entrega') setStatus('Em Atendimento');
+      }
+    }
   };
+
+  // Re-check prosthesis when initial data loads
+  useEffect(() => {
+    if (selectedProcedure) {
+      const check = selectedProcedure.name.toLowerCase().includes('prótese') || selectedProcedure.name.toLowerCase().includes('protese');
+      setIsProsthesis(check);
+    }
+  }, [selectedProcedure]);
 
   const handleSave = async () => {
     // Basic validation
@@ -284,18 +366,33 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
     }
 
     // Ensure status is selected (default fallback)
-    const finalStatus = status || 'Agendado';
+    const finalStatus = status || (isProsthesis ? 'Consulta/Molde' : 'Em Atendimento');
 
     setIsSaving(true);
     try {
-      const payload = {
+      const payload: any = {
         patient_id: patientId,
         procedure_code: procedureCode,
         status: finalStatus,
         date_service: new Date(dateService).toISOString(),
         date_scheduling: dateScheduling ? new Date(dateScheduling).toISOString() : null,
-        notes: notes
+        notes: notes,
+        sia_processed: siaProcessed
       };
+
+      if (isProsthesis) {
+         // Logic to set or clear date_delivery based on status
+         // However, if we auto-transitioned to Finalized, dateDelivery should be there.
+         if (dateDelivery && (finalStatus === 'Agendado Entrega' || finalStatus === 'Finalizado')) {
+            payload.date_delivery = new Date(dateDelivery).toISOString();
+         } else {
+            payload.date_delivery = null; // Clear delivery date if reverting status to Consulta/Molde
+         }
+      }
+
+      if (finalStatus === 'Cancelado' && dateCancellation) {
+         payload.date_cancellation = new Date(dateCancellation).toISOString();
+      }
 
       let error;
       if (initialId) {
@@ -322,6 +419,11 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
       setIsSaving(false);
     }
   };
+
+  const isStatusLocked = (
+    (status === 'Finalizado' && userProfile?.role !== 'admin') ||
+    (status === 'Cancelado')
+  );
 
   if (isLoading) {
     return (
@@ -361,8 +463,8 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
 
       <div className="bg-surface-light dark:bg-surface-dark border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
         
-        {/* Patient Selection */}
-        <div className="group relative z-20">
+        {/* Patient Selection - Imagem 2 Context */}
+        <div className={`group relative ${showResults ? 'z-50' : 'z-20'}`}>
           <div className="flex justify-between items-center mb-2">
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Paciente *</label>
             {selectedPatient && (
@@ -460,111 +562,8 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
           </div>
         )}
 
-        {/* Date & Time & Scheduling */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="group">
-            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase">Data Atendimento *</label>
-            <div className="relative">
-              <input 
-                type="text" 
-                inputMode="numeric"
-                value={dateServiceText}
-                placeholder="dd/mm/aaaa hh:mm"
-                maxLength={16}
-                onChange={(e) => {
-                  const val = applyDateMask(e.target.value);
-                  setDateServiceText(val);
-                  const iso = parseDateToISO(val);
-                  if (iso) setDateService(iso);
-                }}
-                onBlur={() => {
-                  // Validate on blur if the date is complete
-                  if (dateServiceText.length >= 10 && !dateService) {
-                    const iso = parseDateToISO(dateServiceText + (dateServiceText.length === 10 ? ' 00:00' : ''));
-                    if (iso) setDateService(iso);
-                  }
-                }}
-                className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 pr-12 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm" 
-              />
-              <button 
-                type="button"
-                onClick={() => {
-                  const input = document.getElementById('date-service-picker') as HTMLInputElement;
-                  if (input) input.showPicker();
-                }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-primary transition-colors"
-              >
-                <span className="material-symbols-outlined">calendar_month</span>
-              </button>
-              <input
-                id="date-service-picker"
-                type="datetime-local"
-                className="sr-only"
-                value={dateService}
-                onChange={(e) => {
-                  setDateService(e.target.value);
-                  setDateServiceText(formatDateToMask(e.target.value));
-                }}
-              />
-            </div>
-          </div>
-          <div className="group">
-            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase text-primary">Data Agendamento</label>
-            <div className="relative">
-              <input 
-                type="text" 
-                inputMode="numeric"
-                value={dateSchedulingText}
-                placeholder="dd/mm/aaaa hh:mm"
-                maxLength={16}
-                onChange={(e) => {
-                  const val = applyDateMask(e.target.value);
-                  setDateSchedulingText(val);
-                  const iso = parseDateToISO(val);
-                  if (iso) setDateScheduling(iso);
-                }}
-                className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 pr-12 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm" 
-              />
-              <button 
-                type="button"
-                onClick={() => {
-                  const input = document.getElementById('date-scheduling-picker') as HTMLInputElement;
-                  if (input) input.showPicker();
-                }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-primary transition-colors"
-              >
-                <span className="material-symbols-outlined">event</span>
-              </button>
-              <input
-                id="date-scheduling-picker"
-                type="datetime-local"
-                className="sr-only"
-                value={dateScheduling}
-                onChange={(e) => {
-                  setDateScheduling(e.target.value);
-                  setDateSchedulingText(formatDateToMask(e.target.value));
-                }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="group">
-            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase">Status</label>
-            <select 
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm"
-            >
-              <option>Agendado</option>
-              <option>Em Produção</option>
-              <option>Finalizado</option>
-              <option>Cancelado</option>
-            </select>
-        </div>
-
-        {/* Procedure Search */}
-        <div className="group relative z-10">
+        {/* Procedure Search - Imagem 3 Context (Moved Up) */}
+        <div className={`group relative ${showProcResults ? 'z-50' : 'z-10'}`}>
           <div className="flex justify-between items-center mb-2">
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Procedimento (Código) *</label>
             {selectedProcedure && (
@@ -596,7 +595,7 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
             
             {/* Procedure Search Results Dropdown */}
             {showProcResults && (
-              <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-surface-dark rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden max-h-60 overflow-y-auto z-50">
+              <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-surface-dark rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden max-h-60 overflow-y-auto z-[60]">
                 {isProcSearching ? (
                   <div className="p-4 text-center text-slate-500 dark:text-slate-400 text-xs font-medium">
                     <span className="material-symbols-outlined animate-spin text-lg mb-1 block">progress_activity</span>
@@ -633,15 +632,234 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
           </div>
         )}
 
-        <div className="group">
-          <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase">Descrição Detalhada</label>
-          <textarea 
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-4 px-4 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm min-h-[120px] resize-none"
-            placeholder="Descreva as especificações da prótese, materiais e observações clínicas..."
-          />
-        </div>
+        {/* Fields dependent on Procedure Selection */}
+        {selectedProcedure && (
+          <div className="space-y-6 animate-fade-in">
+            {/* Date & Time Section - Dynamic based on Procedure Type */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="group">
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase">
+                  {isProsthesis ? 'Data Consulta/Molde *' : 'Data Atendimento *'}
+                </label>
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    inputMode="numeric"
+                    value={dateServiceText}
+                    placeholder="dd/mm/aaaa hh:mm"
+                    maxLength={16}
+                    onChange={(e) => {
+                      const val = applyDateMask(e.target.value);
+                      setDateServiceText(val);
+                      const iso = parseDateToISO(val);
+                      if (iso) setDateService(iso);
+                    }}
+                    onBlur={() => {
+                      if (dateServiceText.length >= 10 && !dateService) {
+                        const iso = parseDateToISO(dateServiceText + (dateServiceText.length === 10 ? ' 00:00' : ''));
+                        if (iso) setDateService(iso);
+                      }
+                    }}
+                    className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 pr-12 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm" 
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const input = document.getElementById('date-service-picker') as HTMLInputElement;
+                      if (input) input.showPicker();
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-primary transition-colors"
+                  >
+                    <span className="material-symbols-outlined">calendar_month</span>
+                  </button>
+                  <input
+                    id="date-service-picker"
+                    type="datetime-local"
+                    className="sr-only"
+                    value={dateService}
+                    onChange={(e) => {
+                      setDateService(e.target.value);
+                      setDateServiceText(formatDateToMask(e.target.value));
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Delivery Date - Only for Prosthesis & specific statuses */}
+              {isProsthesis && (status === 'Agendado Entrega' || status === 'Finalizado') && (
+                <div className="group animate-fade-in">
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase text-primary">Data Entrega *</label>
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      inputMode="numeric"
+                      value={dateDeliveryText}
+                      placeholder="dd/mm/aaaa hh:mm"
+                      maxLength={16}
+                      onChange={(e) => {
+                        const val = applyDateMask(e.target.value);
+                        setDateDeliveryText(val);
+                        const iso = parseDateToISO(val);
+                        if (iso) setDateDelivery(iso);
+                      }}
+                      className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 pr-12 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm" 
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        const input = document.getElementById('date-delivery-picker') as HTMLInputElement;
+                        if (input) input.showPicker();
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-primary transition-colors"
+                    >
+                      <span className="material-symbols-outlined">event_available</span>
+                    </button>
+                    <input
+                      id="date-delivery-picker"
+                      type="datetime-local"
+                      className="sr-only"
+                      value={dateDelivery}
+                      onChange={(e) => {
+                        setDateDelivery(e.target.value);
+                        setDateDeliveryText(formatDateToMask(e.target.value));
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+              
+              {/* Cancellation Date - Only if Cancelled */}
+              {status === 'Cancelado' && (
+                <div className="group animate-fade-in">
+                  <label className="block text-xs font-bold text-red-500 mb-2 uppercase">Data Cancelamento *</label>
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      inputMode="numeric"
+                      value={dateCancellationText}
+                      placeholder="dd/mm/aaaa hh:mm"
+                      maxLength={16}
+                      onChange={(e) => {
+                        const val = applyDateMask(e.target.value);
+                        setDateCancellationText(val);
+                        const iso = parseDateToISO(val);
+                        if (iso) setDateCancellation(iso);
+                      }}
+                      className="w-full bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 text-red-900 dark:text-red-200 rounded-xl py-3.5 px-4 pr-12 focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all text-sm" 
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        const input = document.getElementById('date-cancellation-picker') as HTMLInputElement;
+                        if (input) input.showPicker();
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-red-400 hover:text-red-600 transition-colors"
+                    >
+                      <span className="material-symbols-outlined">event_busy</span>
+                    </button>
+                    <input
+                      id="date-cancellation-picker"
+                      type="datetime-local"
+                      className="sr-only"
+                      value={dateCancellation}
+                      onChange={(e) => {
+                        setDateCancellation(e.target.value);
+                        setDateCancellationText(formatDateToMask(e.target.value));
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Regular Scheduling Date - For Non-Prosthesis or if needed */}
+              {!isProsthesis && status !== 'Cancelado' && (
+                <div className="group">
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase text-primary">Data Agendamento</label>
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    inputMode="numeric"
+                    value={dateSchedulingText}
+                    placeholder="dd/mm/aaaa hh:mm"
+                    maxLength={16}
+                    onChange={(e) => {
+                      const val = applyDateMask(e.target.value);
+                      setDateSchedulingText(val);
+                      const iso = parseDateToISO(val);
+                      if (iso) setDateScheduling(iso);
+                    }}
+                    className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 pr-12 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm" 
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const input = document.getElementById('date-scheduling-picker') as HTMLInputElement;
+                      if (input) input.showPicker();
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-primary transition-colors"
+                  >
+                    <span className="material-symbols-outlined">event</span>
+                  </button>
+                  <input
+                    id="date-scheduling-picker"
+                    type="datetime-local"
+                    className="sr-only"
+                    value={dateScheduling}
+                    onChange={(e) => {
+                      setDateScheduling(e.target.value);
+                      setDateSchedulingText(formatDateToMask(e.target.value));
+                    }}
+                  />
+                </div>
+              </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+               <div className="group">
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase">Status</label>
+                <div className="relative">
+                  <select 
+                    value={status}
+                    disabled={isStatusLocked}
+                    onChange={(e) => setStatus(e.target.value)}
+                    className={`w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm ${isProsthesis && (status === 'Consulta/Molde' || status === 'Agendado Entrega') ? 'border-l-4 border-l-primary' : ''} disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    {isProsthesis ? (
+                      <>
+                        <option value="Consulta/Molde">Consulta/Molde</option>
+                        <option value="Agendado Entrega">Agendado Entrega</option>
+                        <option value="Finalizado">Finalizado</option>
+                        <option value="Cancelado">Cancelado</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="Em Atendimento">Em Atendimento</option>
+                        <option value="Finalizado">Finalizado</option>
+                      </>
+                    )}
+                  </select>
+                  {isProsthesis && (status === 'Consulta/Molde' || status === 'Agendado Entrega') && (
+                     <div className="absolute right-8 top-1/2 -translate-y-1/2 flex items-center gap-1 bg-primary/10 text-primary px-2 py-0.5 rounded text-[10px] font-bold uppercase pointer-events-none">
+                       <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+                       Em Produção
+                     </div>
+                  )}
+                </div>
+               </div>
+            </div>
+
+            <div className="group">
+              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase">Descrição Detalhada</label>
+              <textarea 
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-4 px-4 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm min-h-[120px] resize-none"
+                placeholder="Descreva as especificações da prótese, materiais e observações clínicas..."
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 z-40">
