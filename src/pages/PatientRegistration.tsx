@@ -158,6 +158,9 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
       } else {
         return; // Block more than 11 digits
       }
+    } else if (field === 'cns') {
+      // Allow only numbers
+      newValue = newValue.replace(/\D/g, '');
     }
 
     setFormData(prev => ({ ...prev, [field]: newValue }));
@@ -264,6 +267,7 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
       street_type: 'Tipo Lograd.',
       street: 'Logradouro',
       number: 'Número',
+      complement: 'Complemento',
       phone: 'Telefone / Celular'
     };
 
@@ -277,6 +281,12 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
     const phoneDigits = formData.phone.replace(/\D/g, '');
     if (phoneDigits.length !== 11) {
       return alert('O telefone deve conter DDD + 9 dígitos (total 11 números).');
+    }
+
+    // CNS/CPF Validation
+    const cnsDigits = formData.cns.replace(/\D/g, '');
+    if (cnsDigits.length !== 11 && cnsDigits.length !== 15) {
+      return alert('O Cartão SUS/CPF deve conter 11 (CPF) ou 15 (CNS) dígitos.');
     }
 
     setLoading(true);
@@ -416,11 +426,11 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
               {editingId ? 'Editando Paciente' : 'Dados de Identificação'}
             </h3>
             <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <InputGroup label="Cartão SUS (CNS)" placeholder="000 0000 0000 0000" icon="qr_code_scanner" value={formData.cns} onChange={(v: string) => handleChange('cns', v)} />
-              <InputGroup label="Nome Completo" placeholder="Digite o nome do paciente" value={formData.name} onChange={(v: string) => handleChange('name', v)} />
-              <InputGroup label="Data de Nascimento" type="date" value={formData.birth_date} onChange={(v: string) => handleChange('birth_date', v)} />
+              <InputGroup label="Cartão SUS (CNS)" placeholder="000 0000 0000 0000" icon="qr_code_scanner" value={formData.cns} onChange={(v: string) => handleChange('cns', v)} required />
+              <InputGroup label="Nome Completo" placeholder="Digite o nome do paciente" value={formData.name} onChange={(v: string) => handleChange('name', v)} required />
+              <InputGroup label="Data de Nascimento" type="date" value={formData.birth_date} onChange={(v: string) => handleChange('birth_date', v)} required />
               <div className="flex flex-col gap-2">
-                <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Sexo</label>
+                <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Sexo <span className="text-red-500">*</span></label>
                 <select 
                   value={formData.gender}
                   onChange={(e) => handleChange('gender', e.target.value)}
@@ -435,21 +445,21 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
 
             <section className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-2">
               <div className="relative">
-                <InputGroup label="Nacionalidade" placeholder="Ex: Brasileira" value={formData.nationality} onChange={(v: string) => handleChange('nationality', v)} list="nat-list" />
+                <InputGroup label="Nacionalidade" placeholder="Ex: Brasileira" value={formData.nationality} onChange={(v: string) => handleChange('nationality', v)} list="nat-list" required />
                 <datalist id="nat-list">{catalogs.nationalities.map(n => <option key={n} value={n} />)}</datalist>
                 {!catalogs.nationalities.includes(formData.nationality) && formData.nationality && (
                   <button onClick={() => saveToCatalog('nationalities_catalog', 'name', formData.nationality)} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar Nova</button>
                 )}
               </div>
               <div className="relative">
-                <InputGroup label="Raça / Cor" placeholder="Ex: Parda" value={formData.race} onChange={(v: string) => handleChange('race', v)} list="race-list" />
+                <InputGroup label="Raça / Cor" placeholder="Ex: Parda" value={formData.race} onChange={(v: string) => handleChange('race', v)} list="race-list" required />
                 <datalist id="race-list">{catalogs.races.map(n => <option key={n} value={n} />)}</datalist>
                 {!catalogs.races.includes(formData.race) && formData.race && (
                   <button onClick={() => saveToCatalog('races_catalog', 'name', formData.race)} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar Nova</button>
                 )}
               </div>
               <div className="relative">
-                <InputGroup label="Etnia" placeholder="Ex: Tupi" value={formData.ethnicity} onChange={(v: string) => handleChange('ethnicity', v)} list="eth-list" />
+                <InputGroup label="Etnia" placeholder="Ex: Tupi" value={formData.ethnicity} onChange={(v: string) => handleChange('ethnicity', v)} list="eth-list" required />
                 <datalist id="eth-list">{catalogs.ethnicities.map(n => <option key={n} value={n} />)}</datalist>
                 {!catalogs.ethnicities.includes(formData.ethnicity) && formData.ethnicity && (
                   <button onClick={() => saveToCatalog('ethnicities_catalog', 'name', formData.ethnicity)} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar Nova</button>
@@ -467,16 +477,16 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
             
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               <div className="relative">
-                <InputGroup label="CEP" placeholder="00000-000" icon="search" value={formData.zip_code} onChange={(v: string) => handleChange('zip_code', v)} />
+                <InputGroup label="CEP" placeholder="00000-000" icon="search" value={formData.zip_code} onChange={(v: string) => handleChange('zip_code', v)} required />
                 {formData.zip_code && formData.zip_code.replace(/\D/g, '').length === 8 && !catalogs.savedCeps.includes(formData.zip_code.replace(/\D/g, '')) && (
                   <button onClick={saveCepToCatalog} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar CEP</button>
                 )}
               </div>
               <div className="md:col-span-2">
-                <InputGroup label="Município" placeholder="Preenchido via CEP" value={formData.city} onChange={(v: string) => handleChange('city', v)} />
+                <InputGroup label="Município" placeholder="Preenchido via CEP" value={formData.city} onChange={(v: string) => handleChange('city', v)} required />
               </div>
               <div className="relative">
-                <InputGroup label="Bairro" placeholder="Nome do bairro" value={formData.neighborhood} onChange={(v: string) => handleChange('neighborhood', v)} list="neighborhood-list" />
+                <InputGroup label="Bairro" placeholder="Nome do bairro" value={formData.neighborhood} onChange={(v: string) => handleChange('neighborhood', v)} list="neighborhood-list" required />
                 <datalist id="neighborhood-list">{catalogs.neighborhoods.map(n => <option key={n} value={n} />)}</datalist>
                 {!catalogs.neighborhoods.includes(formData.neighborhood) && formData.neighborhood && (
                   <button onClick={() => saveToCatalog('neighborhoods_catalog', 'name', formData.neighborhood)} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar Novo Bairro</button>
@@ -486,17 +496,17 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
 
             <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
               <div className="md:col-span-2 relative">
-                <InputGroup label="Cód. Lograd." placeholder="Código" value={formData.street_code} onChange={(v: string) => handleChange('street_code', v)} list="street-code-list" />
+                <InputGroup label="Cód. Lograd." placeholder="Código" value={formData.street_code} onChange={(v: string) => handleChange('street_code', v)} list="street-code-list" required />
                 <datalist id="street-code-list">{catalogs.streetTypes.map(s => <option key={s.code} value={s.code}>{s.name}</option>)}</datalist>
               </div>
 
               <div className="md:col-span-2 relative">
-                <InputGroup label="Tipo Lograd." placeholder="Rua..." value={formData.street_type} onChange={(v: string) => handleChange('street_type', v)} list="type-list" />
+                <InputGroup label="Tipo Lograd." placeholder="Rua..." value={formData.street_type} onChange={(v: string) => handleChange('street_type', v)} list="type-list" required />
                 <datalist id="type-list">{catalogs.streetTypes.map(t => <option key={t.name} value={t.name} />)}</datalist>
               </div>
 
               <div className="md:col-span-4 relative">
-                <InputGroup label="Logradouro" placeholder="Nome da via" value={formData.street} onChange={(v: string) => handleChange('street', v)} list="street-name-list" />
+                <InputGroup label="Logradouro" placeholder="Nome da via" value={formData.street} onChange={(v: string) => handleChange('street', v)} list="street-name-list" required />
                 <datalist id="street-name-list">{catalogs.streets.map(s => <option key={s.name} value={s.name} />)}</datalist>
                 {!catalogs.streets.some(s => s.name.toLowerCase() === formData.street.toLowerCase()) && formData.street && (
                   <button onClick={() => saveToCatalog('streets_catalog', 'name', formData.street, 'code', formData.street_code)} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar Logradouro</button>
@@ -504,11 +514,11 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
               </div>
 
               <div className="md:col-span-2">
-                <InputGroup label="Nº" placeholder="123" value={formData.number} onChange={(v: string) => handleChange('number', v)} className="min-w-[80px]" />
+                <InputGroup label="Nº" placeholder="123" value={formData.number} onChange={(v: string) => handleChange('number', v)} className="min-w-[80px]" required />
               </div>
 
               <div className="md:col-span-2 relative">
-                 <InputGroup label="Complemento" placeholder="Apto..." value={formData.complement} onChange={(v: string) => handleChange('complement', v)} list="complement-list" />
+                 <InputGroup label="Complemento" placeholder="Apto..." value={formData.complement} onChange={(v: string) => handleChange('complement', v)} list="complement-list" required />
                  <datalist id="complement-list">{catalogs.complements.map(c => <option key={c} value={c} />)}</datalist>
                  {!catalogs.complements.includes(formData.complement) && formData.complement && (
                   <button onClick={() => saveToCatalog('complements_catalog', 'name', formData.complement)} className="absolute right-0 -bottom-5 text-[9px] font-black text-primary uppercase hover:underline">Salvar Complemento</button>
@@ -524,7 +534,7 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
               Contato
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <InputGroup label="Telefone / Celular" placeholder="(00) 00000-0000" icon="phone" value={formData.phone} onChange={(v: string) => handleChange('phone', v)} />
+              <InputGroup label="Telefone / Celular" placeholder="(00) 00000-0000" icon="phone" value={formData.phone} onChange={(v: string) => handleChange('phone', v)} required />
               <InputGroup label="E-mail" placeholder="paciente@exemplo.com" icon="mail" value={formData.email} onChange={(v: string) => handleChange('email', v)} />
             </div>
           </div>
@@ -657,9 +667,11 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
   );
 };
 
-const InputGroup = ({ label, placeholder, icon, type = "text", value, onChange, list, className }: any) => (
+const InputGroup = ({ label, placeholder, icon, type = "text", value, onChange, list, className, required }: any) => (
   <div className={`flex flex-col gap-2 group ${className || ''}`}>
-    <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{label}</label>
+    <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+      {label} {required && <span className="text-red-500">*</span>}
+    </label>
     <div className="relative">
       <input 
         type={type} 

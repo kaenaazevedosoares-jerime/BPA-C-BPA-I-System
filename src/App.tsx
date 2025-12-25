@@ -204,7 +204,12 @@ const App: React.FC = () => {
           theme={theme} 
           onToggleTheme={toggleTheme} 
           onOpenSidebar={() => setIsSidebarOpen(true)}
-          currentViewTitle={currentView === 'dashboard' ? 'Visão Geral' : currentView.charAt(0).toUpperCase() + currentView.slice(1).replace('-', ' ')}
+          currentViewTitle={
+            currentView === 'dashboard' ? 'Visão Geral' : 
+            currentView === 'procedure-list' ? 'Lista Procedimento' :
+            currentView === 'patient-reg' ? 'REGISTRO PACIENTE' :
+            currentView.charAt(0).toUpperCase() + currentView.slice(1).replace('-', ' ')
+          }
         />
         
         <main className="flex-1 overflow-y-auto">

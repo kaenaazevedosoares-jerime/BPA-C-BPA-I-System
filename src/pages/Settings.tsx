@@ -99,6 +99,46 @@ const Settings: React.FC<SettingsProps> = ({ currentUser }) => {
     setTemplateForm({ title: t.title, message: t.message });
   };
 
+  const textAreaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  const AVAILABLE_VARIABLES = [
+    { label: 'Nome do Paciente', value: '{paciente}' },
+    { label: 'CNS', value: '{cns}' },
+    { label: 'Data Nascimento', value: '{nascimento}' },
+    { label: 'Gênero', value: '{genero}' },
+    { label: 'Bairro', value: '{bairro}' },
+    { label: 'Nome Procedimento', value: '{procedimento}' },
+    { label: 'Cód. Procedimento', value: '{codigo_procedimento}' },
+    { label: 'Data Atendimento', value: '{data_atendimento}' },
+    { label: 'Data Consulta/Molde', value: '{data_consulta_molde}' },
+    { label: 'Data Agendamento', value: '{data_agendamento}' },
+    { label: 'Data Entrega', value: '{data_entrega}' },
+    { label: 'Data Cancelamento', value: '{data_cancelamento}' },
+    { label: 'Status', value: '{status}' },
+    { label: 'Observações', value: '{observacoes}' },
+  ];
+
+  const insertVariable = (variable: string) => {
+    const textarea = textAreaRef.current;
+    if (!textarea) {
+      setTemplateForm(prev => ({ ...prev, message: prev.message + variable }));
+      return;
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = templateForm.message;
+    const newText = text.substring(0, start) + variable + text.substring(end);
+    
+    setTemplateForm(prev => ({ ...prev, message: newText }));
+    
+    // Restore focus and cursor position
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + variable.length, start + variable.length);
+    }, 0);
+  };
+
   const handleSaveTemplate = async () => {
     if (!templateForm.title || !templateForm.message) return;
     setSavingTemplate(true);
@@ -308,30 +348,34 @@ const Settings: React.FC<SettingsProps> = ({ currentUser }) => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mensagem</label>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="block text-xs font-bold text-slate-500 uppercase">Mensagem</label>
+                      <span className="text-[10px] text-slate-400">Clique nas variáveis abaixo para inserir</span>
+                    </div>
+                    
+                    {/* Variable Chips */}
+                    <div className="flex flex-wrap gap-2 mb-2 p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                      {AVAILABLE_VARIABLES.map((v) => (
+                        <button
+                          key={v.value}
+                          onClick={() => insertVariable(v.value)}
+                          className="text-[10px] font-bold px-2 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-primary hover:text-primary transition-colors shadow-sm"
+                          title={`Inserir ${v.label}`}
+                        >
+                          {v.value}
+                        </button>
+                      ))}
+                    </div>
+
                     <div className="relative">
                       <textarea 
+                        ref={textAreaRef}
                         value={templateForm.message}
                         onChange={e => setTemplateForm({...templateForm, message: e.target.value})}
                         placeholder="Olá {paciente}, ..."
                         rows={8}
-                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                        className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-primary/50 resize-none font-mono text-sm"
                       />
-                      <div className="absolute top-2 right-2">
-                         <div className="group relative inline-block">
-                           <span className="material-symbols-outlined text-slate-400 cursor-help text-sm">info</span>
-                           <div className="absolute right-0 w-64 p-3 bg-slate-800 text-white text-xs rounded-lg shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
-                             <p className="font-bold mb-1">Variáveis disponíveis:</p>
-                             <ul className="space-y-1 text-slate-300">
-                               <li><code>{'{paciente}'}</code> - Nome do Paciente</li>
-                               <li><code>{'{procedimento}'}</code> - Nome do Procedimento</li>
-                               <li><code>{'{data_atendimento}'}</code> - Data Atend.</li>
-                               <li><code>{'{data_agendamento}'}</code> - Data Agend.</li>
-                               <li><code>{'{status}'}</code> - Status atual</li>
-                             </ul>
-                           </div>
-                         </div>
-                      </div>
                     </div>
                   </div>
 

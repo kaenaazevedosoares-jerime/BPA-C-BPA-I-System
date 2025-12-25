@@ -29,6 +29,11 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
   const [step, setStep] = useState<'upload' | 'preview'>('upload');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Helper to normalize date string to YYYY-MM-DD for comparison
+  const normalizeDate = (isoStr: string) => {
+    return isoStr.split('T')[0];
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0];
@@ -71,12 +76,36 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
 
         const processed: ImportPreview[] = [];
 
-        // Fetch all patients and procedures for validation (naive approach, can be optimized)
+        // Fetch all patients and procedures for validation
         const { data: patients } = await supabase.from('patients').select('id, cns, name');
         const { data: procedures } = await supabase.from('procedures_catalog').select('code');
+        
+        // Fetch existing production records to check for duplicates
+        // We fetch fields needed to identify uniqueness: patient_id (via CNS map), procedure_code, date_service
+        // Since dataset might be large, we might want to filter, but for now fetching all for client-side check is safest if not huge.
+        // Optimization: Filter by CNSs present in the file if possible, but let's do a broad check first or just check during loop if array is small.
+        // Better: Fetch all production for the CNSs in the file.
+        const uniqueCnsInFile = [...new Set(jsonData.map(row => String(row['CNS_PACIENTE'] || '').trim()).filter(Boolean))];
+        
+        let existingRecords: any[] = [];
+        if (uniqueCnsInFile.length > 0) {
+           // Batch fetch? Supabase 'in' limit is usually high enough for typical imports
+           const { data: production } = await supabase
+             .from('procedure_production')
+             .select('patient_id, procedure_code, date_service, status')
+             .in('patient_id', patients?.filter(p => uniqueCnsInFile.includes(p.cns)).map(p => p.id) || []);
+           existingRecords = production || [];
+        }
 
         const patientMap = new Map(patients?.map(p => [p.cns, p.id]));
         const procedureSet = new Set(procedures?.map(p => p.code));
+        
+        // Build a set of existing keys: patientId-procCode-dateService(YYYY-MM-DD)
+        const existingSet = new Set(existingRecords.map(r => {
+           return `${r.patient_id}-${r.procedure_code}-${normalizeDate(r.date_service)}`;
+        }));
+
+        const currentBatchKeys = new Set<string>(); // To track duplicates within the file itself
 
         for (const row of jsonData) {
           const cns = String(row['CNS_PACIENTE'] || '').trim();
@@ -138,6 +167,21 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
           if (status === 'Cancelado' && !dateCancellation) {
              valid = false;
              error = error ? error + ', Data Cancelamento obrigatória' : 'Data Cancelamento obrigatória';
+          }
+
+          // Duplicate Check
+          if (valid && patientId && procCode && dateService) {
+             const key = `${patientId}-${procCode}-${normalizeDate(dateService)}`;
+             
+             if (existingSet.has(key)) {
+                valid = false;
+                error = 'Procedimento já cadastrado no sistema';
+             } else if (currentBatchKeys.has(key)) {
+                valid = false;
+                error = 'Duplicado na planilha';
+             } else {
+                currentBatchKeys.add(key);
+             }
           }
 
           processed.push({
@@ -231,6 +275,30 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
 
     XLSX.utils.book_append_sheet(wb, ws, 'Modelo Importação');
     XLSX.writeFile(wb, 'modelo_importacao_bpai_v3.xlsx');
+  };
+
+  const downloadErrors = () => {
+    const invalidItems = previewData.filter(i => !i.valid);
+    if (invalidItems.length === 0) return;
+
+    // Map back to original structure + Error column
+    const errorData = invalidItems.map(item => ({
+       'CNS_PACIENTE': item.cns,
+       'NOME_PACIENTE': item.name,
+       'CODIGO_PROCEDIMENTO': item.procedure_code,
+       'DATA_ATENDIMENTO': item.date_service ? new Date(item.date_service).toLocaleDateString('pt-BR') : '',
+       'STATUS': item.status,
+       'DATA_ENTREGA': item.date_delivery ? new Date(item.date_delivery).toLocaleDateString('pt-BR') : '',
+       'DATA_CANCELAMENTO': item.date_cancellation ? new Date(item.date_cancellation).toLocaleDateString('pt-BR') : '',
+       'DATA_AGENDAMENTO': item.date_scheduling ? new Date(item.date_scheduling).toLocaleDateString('pt-BR') : '',
+       'PROCESSADO_SIA': item.sia_processed ? 'SIM' : 'NÃO',
+       'ERRO': item.error
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(errorData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Erros Importação');
+    XLSX.writeFile(wb, 'relatorio_erros_importacao.xlsx');
   };
 
   return (
@@ -334,7 +402,17 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
 
         {/* Footer */}
         {step === 'preview' && (
-          <div className="mt-6 flex justify-end gap-3 shrink-0">
+          <div className="mt-6 flex justify-between gap-3 shrink-0">
+             {previewData.some(i => !i.valid) && (
+               <button 
+                 onClick={downloadErrors}
+                 className="px-4 py-3 rounded-xl font-bold text-red-500 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors flex items-center gap-2"
+               >
+                 <span className="material-symbols-outlined">download</span>
+                 Baixar Erros
+               </button>
+             )}
+             <div className="flex gap-3 ml-auto">
             <button 
               onClick={onClose}
               className="px-6 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
@@ -358,6 +436,7 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
                 </>
               )}
             </button>
+            </div>
           </div>
         )}
 

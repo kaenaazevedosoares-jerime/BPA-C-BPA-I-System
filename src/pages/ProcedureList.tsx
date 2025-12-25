@@ -35,6 +35,9 @@ interface ProcedureItem {
   street_type: string;
   // New fields
   sia_processed?: boolean;
+  dateDelivery?: string;
+  dateCancellation?: string;
+  notes?: string;
 }
 
 const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
@@ -51,6 +54,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
   const [showWhatsApp, setShowWhatsApp] = useState(false);
   const [whatsAppItem, setWhatsAppItem] = useState<ProcedureItem | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
 
   const fetchProcedures = async () => {
     try {
@@ -58,7 +62,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
       const { data: productionData, error: productionError } = await supabase
         .from('procedure_production')
         .select(`
-          id, status, date_service, date_scheduling, procedure_code, sia_processed,
+          id, status, date_service, date_scheduling, date_delivery, date_cancellation, notes, procedure_code, sia_processed,
           patients (
             name, cns, birth_date, gender, nationality, race, ethnicity,
             zip_code, city, neighborhood, street, number, phone,
@@ -98,6 +102,8 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         const dateObj = new Date(item.date_service || item.created_at);
         const dateStr = dateObj.toLocaleDateString('pt-BR');
         const dateSchedulingStr = item.date_scheduling ? new Date(item.date_scheduling).toLocaleDateString('pt-BR') : 'N/A';
+        const dateDeliveryStr = item.date_delivery ? new Date(item.date_delivery).toLocaleDateString('pt-BR') : 'N/A';
+        const dateCancellationStr = item.date_cancellation ? new Date(item.date_cancellation).toLocaleDateString('pt-BR') : 'N/A';
         const birthDateStr = p.birth_date ? new Date(p.birth_date).toLocaleDateString('pt-BR') : 'N/A';
 
         return {
@@ -109,6 +115,9 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
           procCode: item.procedure_code,
           date: dateStr,
           dateScheduling: dateSchedulingStr,
+          dateDelivery: dateDeliveryStr,
+          dateCancellation: dateCancellationStr,
+          notes: item.notes || '',
           avatar: '',
           cns: p.cns || 'N/A',
           birthDate: birthDateStr,
@@ -231,11 +240,55 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
     return matchesFilter && matchesSearch && matchesSia && matchesDate;
   });
 
+  const handleSelectItem = (id: string) => {
+    const newSelected = new Set(selectedItems);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedItems(newSelected);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedItems.size === filteredItems.length) {
+      setSelectedItems(new Set());
+    } else {
+      setSelectedItems(new Set(filteredItems.map(i => i.id)));
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedItems.size === 0) return;
+    if (!window.confirm(`Tem certeza que deseja excluir ${selectedItems.size} procedimentos? Esta ação não pode ser desfeita.`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('procedure_production')
+        .delete()
+        .in('id', Array.from(selectedItems));
+
+      if (error) throw error;
+
+      setItems(prev => prev.filter(item => !selectedItems.has(item.id)));
+      setSelectedItems(new Set());
+      alert('Procedimentos excluídos com sucesso!');
+    } catch (error) {
+      console.error('Erro ao excluir procedimentos:', error);
+      alert('Erro ao excluir procedimentos.');
+    }
+  };
+
   const getCount = (status: string) => {
     if (status === 'Em Produção') {
       return items.filter(i => i.status === 'Consulta/Molde' || i.status === 'Agendado Entrega').length;
     }
     return items.filter(i => i.status === status).length;
+  };
+
+  const getSiaCount = (type: 'processed' | 'pending') => {
+    if (type === 'processed') return items.filter(i => i.sia_processed).length;
+    return items.filter(i => !i.sia_processed).length;
   };
 
   const getStatusLabel = (filterName: string) => {
@@ -320,10 +373,11 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
           
           {/* Status Dropdown Filter */}
           <div className="relative">
+             <div className="relative">
              <select
                value={filter !== 'Em Produção' ? filter : 'Todos'}
                onChange={(e) => setFilter(e.target.value)}
-               className="appearance-none bg-white dark:bg-surface-dark border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 rounded-full px-4 py-2 pr-8 text-sm font-semibold transition-all hover:border-slate-300 dark:hover:border-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+               className="appearance-none bg-white dark:bg-surface-dark border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 rounded-full pl-4 pr-12 py-2 text-sm font-semibold transition-all hover:border-slate-300 dark:hover:border-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer min-w-[160px]"
              >
                <option value="Todos">Todos os Status</option>
                <option value="Em Atendimento">Em Atendimento</option>
@@ -332,7 +386,13 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                <option value="Finalizado">Finalizados</option>
                <option value="Cancelado">Cancelados</option>
              </select>
+             {filter !== 'Todos' && filter !== 'Em Produção' && (
+                <span className="absolute right-8 top-1/2 -translate-y-1/2 flex size-5 items-center justify-center rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-500 pointer-events-none">
+                  {getCount(filter)}
+                </span>
+             )}
              <span className="absolute right-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-[18px] text-slate-400 pointer-events-none">filter_list</span>
+             </div>
           </div>
           
           <div className="w-px bg-slate-200 dark:bg-slate-700 mx-2 h-6"></div>
@@ -345,9 +405,43 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
               {filterSia === 'all' ? 'filter_alt' : filterSia === 'processed' ? 'check_circle' : 'pending'}
             </span>
             {filterSia === 'all' ? 'Filtro SIA' : filterSia === 'processed' ? 'SIA Processado' : 'SIA Pendente'}
+            {filterSia !== 'all' && (
+               <span className={`flex size-5 items-center justify-center rounded-full text-[10px] font-bold ${filterSia === 'all' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500' : 'bg-white/20 text-white'}`}>
+                 {getSiaCount(filterSia === 'processed' ? 'processed' : 'pending')}
+               </span>
+            )}
           </button>
         </div>
       </div>
+      
+      {/* Bulk Actions Bar (Admin Only) */}
+      {userProfile?.role === 'admin' && (
+        <div className="flex items-center justify-between bg-slate-100 dark:bg-slate-800 p-4 rounded-xl shadow-inner animate-fade-in">
+           <div className="flex items-center gap-3">
+             <div className="relative flex items-center">
+               <input
+                 type="checkbox"
+                 checked={filteredItems.length > 0 && selectedItems.size === filteredItems.length}
+                 onChange={handleSelectAll}
+                 className="peer w-5 h-5 cursor-pointer appearance-none rounded-md border-2 border-slate-300 dark:border-slate-600 checked:bg-primary checked:border-primary transition-all"
+               />
+               <span className="absolute inset-0 flex items-center justify-center pointer-events-none text-white opacity-0 peer-checked:opacity-100 transition-opacity material-symbols-outlined text-[16px] font-bold">check</span>
+             </div>
+             <span className="text-sm font-bold text-slate-700 dark:text-slate-300 select-none cursor-pointer" onClick={handleSelectAll}>
+                Selecionar Todos ({selectedItems.size} de {filteredItems.length})
+             </span>
+           </div>
+           
+           <button
+             onClick={handleBulkDelete}
+             disabled={selectedItems.size === 0}
+             className="flex items-center gap-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-4 py-2 rounded-lg transition-colors text-sm shadow-sm"
+           >
+             <span className="material-symbols-outlined text-[18px]">delete</span>
+             {selectedItems.size > 0 ? `Excluir (${selectedItems.size})` : 'Excluir Selecionados'}
+           </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center p-8"><span className="material-symbols-outlined animate-spin text-primary text-4xl">progress_activity</span></div>
@@ -361,9 +455,22 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
           {filteredItems.map((item) => (
             <details 
               key={item.id} 
-              className="group overflow-hidden rounded-2xl bg-surface-light dark:bg-surface-dark border border-slate-200 dark:border-slate-800 shadow-sm transition-all open:ring-2 open:ring-primary/20"
+              className="group relative rounded-2xl bg-surface-light dark:bg-surface-dark border border-slate-200 dark:border-slate-800 shadow-sm transition-all open:ring-2 open:ring-primary/20 open:z-30"
             >
               <summary className="flex cursor-pointer items-center p-4 list-none relative">
+                {/* Admin Checkbox */}
+                {userProfile?.role === 'admin' && (
+                   <div className="relative flex items-center mr-4" onClick={(e) => e.stopPropagation()}>
+                     <input
+                       type="checkbox"
+                       checked={selectedItems.has(item.id)}
+                       onChange={() => handleSelectItem(item.id)}
+                       className="peer w-5 h-5 cursor-pointer appearance-none rounded-md border-2 border-slate-300 dark:border-slate-600 checked:bg-primary checked:border-primary transition-all"
+                     />
+                     <span className="absolute inset-0 flex items-center justify-center pointer-events-none text-white opacity-0 peer-checked:opacity-100 transition-opacity material-symbols-outlined text-[16px] font-bold">check</span>
+                   </div>
+                )}
+
                 <div className="flex items-center gap-4 flex-1 min-w-0 mr-10">
                   {/* Avatar */}
                   <div className="relative shrink-0">
@@ -397,7 +504,8 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                   <div className="flex-1"></div>
 
                   {/* Right Actions: SIA, WhatsApp (W) & Status (A) */}
-                  <div className="flex items-center gap-2 sm:gap-4" onClick={(e) => e.preventDefault()}>
+                  <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center sm:gap-4" onClick={(e) => e.preventDefault()}>
+                    <div className="flex items-center gap-2">
                      {/* SIA Toggle Button */}
                      <button 
                        onClick={(e) => {
@@ -423,6 +531,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                      >
                        <span className="material-symbols-outlined text-[18px]">chat</span>
                      </button>
+                    </div>
 
                      {/* A: Status Dropdown */}
                      <StatusDropdown 
@@ -435,7 +544,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                 <span className="absolute right-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-slate-400 group-open:rotate-180 transition-transform">expand_more</span>
               </summary>
               
-              <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-background-dark/30 p-4 space-y-4">
+              <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-background-dark/30 p-4 space-y-4 rounded-b-2xl">
                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                     <DetailField label="Sus" value={item.cns} />
                     <DetailField label="Paciente" value={item.name} />
@@ -493,10 +602,19 @@ const WhatsAppModal = ({ item, onClose }: { item: ProcedureItem, onClose: () => 
     if (tmpl) {
       let msg = tmpl.message;
       msg = msg.replace(/{paciente}/g, item.name);
+      msg = msg.replace(/{cns}/g, item.cns);
+      msg = msg.replace(/{nascimento}/g, item.birthDate);
+      msg = msg.replace(/{genero}/g, item.gender);
+      msg = msg.replace(/{bairro}/g, item.neighborhood);
       msg = msg.replace(/{procedimento}/g, item.proc);
+      msg = msg.replace(/{codigo_procedimento}/g, item.procCode);
+       msg = msg.replace(/{data_atendimento}/g, item.date);
+       msg = msg.replace(/{data_consulta_molde}/g, item.date);
+       msg = msg.replace(/{data_agendamento}/g, item.dateScheduling);
+       msg = msg.replace(/{data_entrega}/g, item.dateDelivery || 'N/A');
+      msg = msg.replace(/{data_cancelamento}/g, item.dateCancellation || 'N/A');
       msg = msg.replace(/{status}/g, item.status);
-      msg = msg.replace(/{data_atendimento}/g, item.date);
-      msg = msg.replace(/{data_agendamento}/g, item.dateScheduling);
+      msg = msg.replace(/{observacoes}/g, item.notes || '');
       setMessage(msg);
     }
   };

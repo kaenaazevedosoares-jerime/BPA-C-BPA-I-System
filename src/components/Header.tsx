@@ -20,7 +20,6 @@ const Header: React.FC<HeaderProps> = ({ theme, onToggleTheme, onOpenSidebar, cu
           <span className="material-symbols-outlined">menu</span>
         </button>
         <div className="flex flex-col">
-          <h1 className="text-lg font-bold leading-tight tracking-tight text-slate-900 dark:text-white">Dashboard LRPD</h1>
           <span className="text-[10px] text-primary font-black uppercase tracking-widest">{currentViewTitle}</span>
         </div>
       </div>
