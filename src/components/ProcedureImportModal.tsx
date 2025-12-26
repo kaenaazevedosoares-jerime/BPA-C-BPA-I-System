@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 
@@ -301,9 +302,9 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
     XLSX.writeFile(wb, 'relatorio_erros_importacao.xlsx');
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={onClose}>
-      <div className="bg-white dark:bg-surface-dark w-full max-w-4xl rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white dark:bg-surface-dark w-full max-w-4xl rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col max-h-[90vh] animate-fade-in" onClick={e => e.stopPropagation()}>
         
         {/* Header */}
         <div className="flex justify-between items-center mb-6 shrink-0">
@@ -441,7 +442,8 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
         )}
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

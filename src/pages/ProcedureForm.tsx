@@ -831,11 +831,13 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
                         <option value="Agendado Entrega">Agendado Entrega</option>
                         <option value="Finalizado">Finalizado</option>
                         <option value="Cancelado">Cancelado</option>
+                        <option value="CNS Inválido">CNS Inválido</option>
                       </>
                     ) : (
                       <>
                         <option value="Em Atendimento">Em Atendimento</option>
                         <option value="Finalizado">Finalizado</option>
+                        <option value="CNS Inválido">CNS Inválido</option>
                       </>
                     )}
                   </select>

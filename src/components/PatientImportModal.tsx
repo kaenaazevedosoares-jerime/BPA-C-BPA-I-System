@@ -1,4 +1,5 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 
@@ -52,43 +53,6 @@ export const PatientImportModal: React.FC<PatientImportModalProps> = ({ onClose,
   const [invalidRecords, setInvalidRecords] = useState<ImportError[]>([]);
   const [step, setStep] = useState<'upload' | 'preview' | 'result'>('upload');
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFileDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    const droppedFile = e.dataTransfer.files[0];
-    validateAndSetFile(droppedFile);
-  }, []);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.[0]) {
-      validateAndSetFile(e.target.files[0]);
-    }
-  };
-
-  const validateAndSetFile = (f: File) => {
-    if (!f) return;
-    
-    // Check type
-    const validTypes = [
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-      'application/vnd.ms-excel', // .xls
-      'text/csv' // .csv
-    ];
-    
-    if (!validTypes.includes(f.type) && !f.name.endsWith('.csv') && !f.name.endsWith('.xlsx')) {
-      alert('Formato inválido. Por favor envie um arquivo Excel (.xlsx) ou CSV.');
-      return;
-    }
-
-    // Check size
-    if (f.size > MAX_FILE_SIZE) {
-      alert('O arquivo excede o limite de 10MB.');
-      return;
-    }
-
-    setFile(f);
-    analyzeFile(f);
-  };
 
   const analyzeFile = async (f: File) => {
     setAnalyzing(true);
@@ -216,6 +180,43 @@ export const PatientImportModal: React.FC<PatientImportModalProps> = ({ onClose,
     reader.readAsBinaryString(f);
   };
 
+  const validateAndSetFile = (f: File) => {
+    if (!f) return;
+    
+    // Check type
+    const validTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/vnd.ms-excel', // .xls
+      'text/csv' // .csv
+    ];
+    
+    if (!validTypes.includes(f.type) && !f.name.endsWith('.csv') && !f.name.endsWith('.xlsx')) {
+      alert('Formato inválido. Por favor envie um arquivo Excel (.xlsx) ou CSV.');
+      return;
+    }
+
+    // Check size
+    if (f.size > MAX_FILE_SIZE) {
+      alert('O arquivo excede o limite de 10MB.');
+      return;
+    }
+
+    setFile(f);
+    analyzeFile(f);
+  };
+
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const droppedFile = e.dataTransfer.files[0];
+    validateAndSetFile(droppedFile);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.[0]) {
+      validateAndSetFile(e.target.files[0]);
+    }
+  };
+
   const handleImport = async () => {
     if (validRecords.length === 0) return;
     
@@ -223,23 +224,11 @@ export const PatientImportModal: React.FC<PatientImportModalProps> = ({ onClose,
     let successCount = 0;
     const finalErrors = [...invalidRecords];
 
-    // Batch insert? Or one by one to handle individual errors?
-    // Supabase supports bulk insert. However, if one fails (e.g. unique constraint on CNS), the whole batch might fail unless we use `ignoreDuplicates` or handle gracefully.
-    // For "Robustness", checking one by one or small batches is safer to report specific errors.
-    // Let's try chunks of 50.
-
     const chunkSize = 50;
     const totalChunks = Math.ceil(validRecords.length / chunkSize);
 
     for (let i = 0; i < totalChunks; i++) {
       const chunk = validRecords.slice(i * chunkSize, (i + 1) * chunkSize);
-      
-      // We use upsert to avoid unique constraint errors if we want to update, OR insert and catch errors.
-      // Requirement says "Cadastro", usually implies new, but could be update. 
-      // Safe bet: Insert, if conflict -> Error? Or Upsert?
-      // "Validar o arquivo...". Usually we want to skip duplicates or update them.
-      // Let's assume we skip duplicates but report them as warning, OR upsert.
-      // Given it's an import, Upsert is usually friendlier.
       
       const { data, error } = await supabase
         .from('patients')
@@ -247,9 +236,6 @@ export const PatientImportModal: React.FC<PatientImportModalProps> = ({ onClose,
         .select();
 
       if (error) {
-        // If batch fails, try one by one to find the culprit?
-        // Or just mark the whole chunk as failed?
-        // Let's mark chunk as failed for simplicity in this prompt, or log it.
         console.error('Batch error', error);
         // Add to invalid records
         chunk.forEach((rec, idx) => {
@@ -293,9 +279,9 @@ export const PatientImportModal: React.FC<PatientImportModalProps> = ({ onClose,
     XLSX.writeFile(wb, "relatorio_erros_importacao.xlsx");
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
-      <div className="bg-white dark:bg-surface-dark w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-surface-dark w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-fade-in" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -467,6 +453,7 @@ export const PatientImportModal: React.FC<PatientImportModalProps> = ({ onClose,
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

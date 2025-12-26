@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { WhatsAppTemplate, UserProfile } from '../types';
 import ProcedureImportModal from '../components/ProcedureImportModal';
@@ -98,6 +99,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         else if (status === 'Agendado' || status === 'Agendado Entrega') statusColor = 'text-yellow-500';
         else if (status === 'Cancelado') statusColor = 'text-red-500';
         else if (status === 'Agendado Entrega') statusColor = 'text-purple-500';
+        else if (status === 'CNS Inválido') statusColor = 'text-orange-600';
         
         const dateObj = new Date(item.date_service || item.created_at);
         const dateStr = dateObj.toLocaleDateString('pt-BR');
@@ -156,6 +158,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
           else if (newStatus === 'Finalizado' || newStatus === 'Concluído') statusColor = 'text-emerald-500';
           else if (newStatus === 'Agendado' || newStatus === 'Agendado Entrega') statusColor = 'text-yellow-500';
           else if (newStatus === 'Cancelado') statusColor = 'text-red-500';
+          else if (newStatus === 'CNS Inválido') statusColor = 'text-orange-600';
           return { ...item, status: newStatus, statusColor };
         }
         return item;
@@ -385,6 +388,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                <option value="Agendado Entrega">Agendado Entrega</option>
                <option value="Finalizado">Finalizados</option>
                <option value="Cancelado">Cancelados</option>
+               <option value="CNS Inválido">CNS Inválido</option>
              </select>
              {filter !== 'Todos' && filter !== 'Em Produção' && (
                 <span className="absolute right-8 top-1/2 -translate-y-1/2 flex size-5 items-center justify-center rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-500 pointer-events-none">
@@ -634,9 +638,9 @@ const WhatsAppModal = ({ item, onClose }: { item: ProcedureItem, onClose: () => 
     onClose();
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={onClose}>
-      <div className="bg-white dark:bg-surface-dark w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700" onClick={e => e.stopPropagation()}>
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white dark:bg-surface-dark w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 animate-fade-in" onClick={e => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-green-600 dark:text-green-400">
@@ -697,7 +701,8 @@ const WhatsAppModal = ({ item, onClose }: { item: ProcedureItem, onClose: () => 
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
@@ -732,7 +737,7 @@ const DetailField = ({ label, value, isPrimary }: any) => {
 
 const StatusDropdown = ({ currentStatus, statusColor, onChange }: any) => {
   const [isOpen, setIsOpen] = useState(false);
-  const statusOptions = ['Agendado', 'Em Atendimento', 'Consulta/Molde', 'Agendado Entrega', 'Finalizado', 'Cancelado'];
+  const statusOptions = ['Agendado', 'Em Atendimento', 'Consulta/Molde', 'Agendado Entrega', 'Finalizado', 'Cancelado', 'CNS Inválido'];
   return (
     <div className="relative inline-block">
       <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded px-1.5 py-0.5 transition-colors">
