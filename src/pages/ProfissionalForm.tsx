@@ -16,11 +16,21 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
     cbo: '',
     endereco: '',
     telefone: '',
-    email: ''
+    email: '',
+    establishment_id: ''
   });
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [loading, setLoading] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
+  const [establishments, setEstablishments] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchEstablishments = async () => {
+      const { data } = await supabase.from('establishments').select('id, name, cnes').order('name');
+      if (data) setEstablishments(data);
+    };
+    fetchEstablishments();
+  }, []);
 
   useEffect(() => {
     if (initialId) {
@@ -116,7 +126,8 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
             nome: formatTitleCase(formData.nome),
             profissao: formatTitleCase(formData.profissao),
             endereco: formatTitleCase(formData.endereco),
-            email: formData.email?.toLowerCase()
+            email: formData.email?.toLowerCase(),
+            establishment_id: formData.establishment_id || null
           })
           .eq('id', initialId);
 
@@ -129,7 +140,8 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
             nome: formatTitleCase(formData.nome),
             profissao: formatTitleCase(formData.profissao),
             endereco: formatTitleCase(formData.endereco),
-            email: formData.email?.toLowerCase()
+            email: formData.email?.toLowerCase(),
+            establishment_id: formData.establishment_id || null
           }]);
 
         if (error) throw error;
@@ -219,6 +231,24 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
                 maxLength={255}
               />
               {errors.nome && <p className="text-red-500 text-sm mt-1">{errors.nome}</p>}
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Estabelecimento de Vínculo
+              </label>
+              <select
+                value={formData.establishment_id}
+                onChange={(e) => handleInputChange('establishment_id', e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent"
+              >
+                <option value="">Selecione um estabelecimento...</option>
+                {establishments.map(est => (
+                  <option key={est.id} value={est.id}>
+                    {est.cnes} - {est.name}
+                  </option>
+                ))}
+              </select>
             </div>
 
           <div>

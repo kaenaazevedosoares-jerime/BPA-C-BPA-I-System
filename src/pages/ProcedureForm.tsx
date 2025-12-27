@@ -425,43 +425,36 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
     (status === 'Cancelado')
   );
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center h-full min-h-[400px]">
-        <span className="material-symbols-outlined animate-spin text-primary text-4xl">progress_activity</span>
-      </div>
-    );
-  }
-
-  // Show Patient Registration if active
-  if (showPatientRegistration) {
-    return (
-      <div className="animate-fade-in">
-        <PatientRegistration 
-          onCancel={() => setShowPatientRegistration(false)}
-          onSave={() => {
-             setShowPatientRegistration(false);
-             // Re-trigger search to find the newly added patient
-             if (registrationInitialData.name) setSearchTerm(registrationInitialData.name);
-          }}
-          userRole="operator" // Or pass current user role
-          initialCns={registrationInitialData.cns}
-          initialName={registrationInitialData.name}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-xl mx-auto p-4 pb-24 space-y-6 animate-fade-in">
-      <div className="flex items-center gap-3 mb-2">
-        <div className="h-8 w-1 bg-gradient-to-b from-primary to-transparent rounded-full"></div>
-        <h2 className="text-xl font-bold tracking-wide text-slate-800 dark:text-white uppercase">
-          {initialId ? 'Editar Procedimento' : 'Novo Procedimento BPA-I'}
-        </h2>
-      </div>
+      {isLoading ? (
+        <div className="flex justify-center items-center h-full min-h-[400px]">
+          <span className="material-symbols-outlined animate-spin text-primary text-4xl">progress_activity</span>
+        </div>
+      ) : showPatientRegistration ? (
+        <div className="animate-fade-in">
+          <PatientRegistration 
+            onCancel={() => setShowPatientRegistration(false)}
+            onSave={() => {
+               setShowPatientRegistration(false);
+               // Re-trigger search to find the newly added patient
+               if (registrationInitialData.name) setSearchTerm(registrationInitialData.name);
+            }}
+            userRole="operator" // Or pass current user role
+            initialCns={registrationInitialData.cns}
+            initialName={registrationInitialData.name}
+          />
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="h-8 w-1 bg-gradient-to-b from-primary to-transparent rounded-full"></div>
+            <h2 className="text-xl font-bold tracking-wide text-slate-800 dark:text-white uppercase">
+              {initialId ? 'Editar Procedimento' : 'Novo Procedimento BPA-I'}
+            </h2>
+          </div>
 
-      <div className="bg-surface-light dark:bg-surface-dark border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
+          <div className="bg-surface-light dark:bg-surface-dark border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
         
         {/* Patient Selection - Imagem 2 Context */}
         <div className={`group relative ${showResults ? 'z-50' : 'z-20'}`}>
@@ -886,6 +879,8 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
           </button>
         </div>
       </div>
+      </>
+    )}
     </div>
   );
 };

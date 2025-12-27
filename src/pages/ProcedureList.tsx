@@ -56,6 +56,33 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
   const [whatsAppItem, setWhatsAppItem] = useState<ProcedureItem | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [debugLogs, setDebugLogs] = useState<string[]>([]); // Debug state
+
+  // Professional Search State (Desktop Only)
+  const [profSearchTerm, setProfSearchTerm] = useState('');
+  const [profSearchResults, setProfSearchResults] = useState<any[]>([]);
+  const [showProfResults, setShowProfResults] = useState(false);
+  const [selectedProfessional, setSelectedProfessional] = useState<any | null>(null);
+
+  useEffect(() => {
+    const searchProfs = async () => {
+        if (profSearchTerm.length < 2) {
+            setProfSearchResults([]);
+            return;
+        }
+
+        const { data } = await supabase
+            .from('profissionais')
+            .select('*, establishments(name, cnes)')
+            .or(`nome.ilike.%${profSearchTerm}%,sus.ilike.%${profSearchTerm}%`)
+            .limit(5);
+        
+        if (data) setProfSearchResults(data);
+    };
+
+    const timeoutId = setTimeout(searchProfs, 300);
+    return () => clearTimeout(timeoutId);
+  }, [profSearchTerm]);
 
   const fetchProcedures = async () => {
     try {
@@ -70,7 +97,8 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
             street_code, street_type
           )
         `)
-        .order('date_service', { ascending: false });
+        .order('date_service', { ascending: false })
+        .limit(2000); // Increased limit to ensure we get more records
 
       if (productionError) throw productionError;
       if (!productionData || productionData.length === 0) {
@@ -91,7 +119,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         const p = item.patients || {};
         const patientName = p.name || 'Desconhecido';
         const procName = procedureMap.get(item.procedure_code) || item.procedure_code;
-        const status = item.status || 'Agendado';
+        const status = (item.status || 'Agendado').trim(); // Ensure trim here
         
         let statusColor = 'text-slate-500';
         if (status === 'Em Produção' || status === 'Em Atendimento' || status === 'Consulta/Molde') statusColor = 'text-primary';
@@ -101,12 +129,32 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         else if (status === 'Agendado Entrega') statusColor = 'text-purple-500';
         else if (status === 'CNS Inválido') statusColor = 'text-orange-600';
         
-        const dateObj = new Date(item.date_service || item.created_at);
-        const dateStr = dateObj.toLocaleDateString('pt-BR');
-        const dateSchedulingStr = item.date_scheduling ? new Date(item.date_scheduling).toLocaleDateString('pt-BR') : 'N/A';
-        const dateDeliveryStr = item.date_delivery ? new Date(item.date_delivery).toLocaleDateString('pt-BR') : 'N/A';
-        const dateCancellationStr = item.date_cancellation ? new Date(item.date_cancellation).toLocaleDateString('pt-BR') : 'N/A';
-        const birthDateStr = p.birth_date ? new Date(p.birth_date).toLocaleDateString('pt-BR') : 'N/A';
+        // Helper to format date strictly from YYYY-MM-DD to DD/MM/YYYY without timezone issues
+        const formatDate = (dateStr: string | null) => {
+           if (!dateStr) return 'N/A';
+           try {
+             // Handle YYYY-MM-DD, ISO timestamp (T), and space separator
+             const cleanDate = dateStr.split(/[T ]/)[0];
+             return cleanDate.split('-').reverse().join('/');
+           } catch (e) {
+             return 'N/A';
+           }
+        };
+
+        const getRawDate = (dateStr: string | null) => {
+           if (!dateStr) return null;
+           try {
+             return dateStr.split(/[T ]/)[0]; // Returns YYYY-MM-DD
+           } catch (e) {
+             return null;
+           }
+        };
+
+        const dateStr = formatDate(item.date_service);
+        const dateSchedulingStr = formatDate(item.date_scheduling);
+        const dateDeliveryStr = formatDate(item.date_delivery);
+        const dateCancellationStr = formatDate(item.date_cancellation);
+        const birthDateStr = formatDate(p.birth_date);
 
         return {
           id: item.id,
@@ -119,6 +167,10 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
           dateScheduling: dateSchedulingStr,
           dateDelivery: dateDeliveryStr,
           dateCancellation: dateCancellationStr,
+          // Populating raw dates
+          rawDate: getRawDate(item.date_service),
+          rawDateDelivery: getRawDate(item.date_delivery),
+          rawDateCancellation: getRawDate(item.date_cancellation),
           notes: item.notes || '',
           avatar: '',
           cns: p.cns || 'N/A',
@@ -210,37 +262,126 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
     }
   };
 
-  const filteredItems = items.filter(item => {
-    const matchesFilter = filter === 'Todos' 
-      ? true 
-      : filter === 'Em Produção' 
-        ? (item.status === 'Consulta/Molde' || item.status === 'Agendado Entrega')
-        : item.status === filter;
+  const checkDateInRange = (item: ProcedureItem, logRejection = false) => {
+    // If no date range is set, everything passes
+    if (!dateStart && !dateEnd) return true;
 
-    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          item.cns.includes(searchTerm) || 
-                          item.proc.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesSia = filterSia === 'all' 
-                       ? true 
-                       : filterSia === 'processed' 
-                         ? item.sia_processed 
-                         : !item.sia_processed;
+    const currentStatus = item.status.trim();
+    let dateToCompare = item.rawDate; // Default fallback: Service Date
+    let dateSource = 'Service';
 
-    let matchesDate = true;
-    if (dateStart || dateEnd) {
-       const itemDate = new Date(item.date.split('/').reverse().join('-')); // Convert DD/MM/YYYY to YYYY-MM-DD
-       if (dateStart) {
-         const start = new Date(dateStart);
-         if (itemDate < start) matchesDate = false;
+    // 1. Determine which date to use based on status
+    if (currentStatus === 'Finalizado' || currentStatus === 'Concluído' || currentStatus === 'Agendado Entrega') {
+       if (item.rawDateDelivery) {
+         dateToCompare = item.rawDateDelivery;
+         dateSource = 'Delivery';
+       } else {
+         // Fallback explicitly to Service Date if Delivery is missing
+         dateToCompare = item.rawDate; 
+         dateSource = 'Fallback Service';
        }
-       if (dateEnd) {
-         const end = new Date(dateEnd);
-         end.setHours(23, 59, 59, 999); // End of day
-         if (itemDate > end) matchesDate = false;
+    } else if (currentStatus === 'Cancelado') {
+       if (item.rawDateCancellation) {
+         dateToCompare = item.rawDateCancellation;
+         dateSource = 'Cancellation';
+       } else {
+         dateToCompare = item.rawDate;
+         dateSource = 'Fallback Service';
        }
+    } else if (currentStatus === 'CNS Inválido' || currentStatus === 'SUS Inválido') {
+        dateToCompare = item.rawDate;
+        dateSource = 'Service (Invalid CNS)';
     }
 
-    return matchesFilter && matchesSearch && matchesSia && matchesDate;
+    // 2. If absolutely no date found, it fails the range filter
+    if (!dateToCompare) {
+       if (logRejection) console.log(`Rejected ${item.name} (${currentStatus}): No Date`);
+       return false;
+    }
+
+    // 3. Compare dates (YYYY-MM-DD string comparison)
+    if (dateStart && dateToCompare < dateStart) {
+       if (logRejection) console.log(`Rejected ${item.name} (${currentStatus}): ${dateToCompare} < ${dateStart} (${dateSource})`);
+       return false;
+    }
+    if (dateEnd && dateToCompare > dateEnd) {
+       if (logRejection) console.log(`Rejected ${item.name} (${currentStatus}): ${dateToCompare} > ${dateEnd} (${dateSource})`);
+       return false;
+    }
+
+    return true;
+  };
+
+  // Re-run filter and capture debug logs when dependencies change
+  useEffect(() => {
+     if (items.length === 0) return;
+     const logs: string[] = [];
+     
+     items.forEach(item => {
+        // Only log "Finalizado" items that are rejected to avoid noise
+        if (item.status === 'Finalizado' || item.status === 'Concluído') {
+           const passed = checkDateInRange(item, false);
+           if (!passed) {
+              // Re-run logic to get details
+              const currentStatus = item.status.trim();
+              let dateToCompare = item.rawDate;
+              let dateSource = 'Service';
+              if (item.rawDateDelivery) { dateToCompare = item.rawDateDelivery; dateSource = 'Delivery'; }
+              
+              if ((dateStart || dateEnd) && !item.rawDateDelivery) {
+                 logs.push(`[REJEITADO] ${item.name} | Status: ${currentStatus} | Data Usada: ${dateToCompare || 'N/A'} (${dateSource}) | Range: ${dateStart} a ${dateEnd} | Motivo: Entrega vazia`);
+              }
+           }
+        }
+     });
+     
+     if (logs.length > 0) {
+        setDebugLogs(logs.slice(0, 5)); // Keep top 5
+     } else {
+        setDebugLogs([]);
+     }
+  }, [items, dateStart, dateEnd, filter, filterSia, searchTerm]);
+
+  const checkStatusFilter = (item: ProcedureItem) => {
+    // 1. "Em Produção" Button Filter
+    // If filter is 'Em Produção', we ONLY show items in that group.
+    if (filter === 'Em Produção') {
+       const s = item.status.trim();
+       return s === 'Consulta/Molde' || s === 'Agendado Entrega' || s === 'Em Atendimento' || s === 'Em Produção';
+    }
+
+    // 2. Dropdown Filter (Specific Status)
+    if (filter !== 'Todos') {
+       return item.status === filter;
+    }
+
+    // 3. "Todos" (Default) - Show everything
+    return true;
+  };
+
+  const checkSiaFilter = (item: ProcedureItem) => {
+    if (filterSia === 'all') return true;
+    if (filterSia === 'processed') return item.sia_processed === true;
+    if (filterSia === 'pending') return !item.sia_processed;
+    return true;
+  };
+
+  const checkSearchFilter = (item: ProcedureItem) => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      item.name.toLowerCase().includes(term) || 
+      item.cns.includes(term) || 
+      item.proc.toLowerCase().includes(term) ||
+      item.procCode.includes(term)
+    );
+  };
+
+  const filteredItems = items.filter(item => {
+    return checkStatusFilter(item) && 
+           checkSiaFilter(item) && 
+           checkDateInRange(item) && 
+           checkSearchFilter(item);
   });
 
   const handleSelectItem = (id: string) => {
@@ -284,7 +425,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
 
   const getCount = (status: string) => {
     if (status === 'Em Produção') {
-      return items.filter(i => i.status === 'Consulta/Molde' || i.status === 'Agendado Entrega').length;
+      return items.filter(i => i.status === 'Consulta/Molde' || i.status === 'Agendado Entrega' || i.status === 'Em Atendimento' || i.status === 'Em Produção').length;
     }
     return items.filter(i => i.status === status).length;
   };
@@ -307,6 +448,14 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         <WhatsAppModal 
           item={whatsAppItem} 
           onClose={() => { setShowWhatsApp(false); setWhatsAppItem(null); }} 
+        />
+      )}
+
+      {/* Professional Details Modal */}
+      {selectedProfessional && (
+        <ProfessionalDetailsModal 
+            professional={selectedProfessional} 
+            onClose={() => setSelectedProfessional(null)} 
         />
       )}
 
@@ -369,6 +518,43 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
              onChange={(e) => setDateEnd(e.target.value)}
              className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-dark px-3 py-2 text-sm text-slate-600 dark:text-slate-300 outline-none focus:border-primary"
            />
+        </div>
+
+        {/* Professional Quick Search (Desktop Only) */}
+        <div className="hidden md:block relative w-64" onBlur={() => setTimeout(() => setShowProfResults(false), 200)}>
+             <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-slate-400 text-[18px]">person_search</span>
+                <input 
+                  value={profSearchTerm}
+                  onChange={(e) => {
+                      setProfSearchTerm(e.target.value);
+                      setShowProfResults(true);
+                  }}
+                  onFocus={() => setShowProfResults(true)}
+                  className="w-full bg-white dark:bg-surface-dark border border-slate-200 dark:border-slate-800 rounded-xl py-2 pl-9 pr-4 text-sm focus:ring-2 focus:ring-primary focus:border-transparent placeholder:text-slate-400"
+                  placeholder="Buscar Profissional..."
+                />
+             </div>
+
+             {/* Results Dropdown */}
+             {showProfResults && profSearchResults.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-surface-dark rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 overflow-hidden z-50">
+                    {profSearchResults.map(prof => (
+                        <button
+                            key={prof.id}
+                            onClick={() => {
+                                setSelectedProfessional(prof);
+                                setShowProfResults(false);
+                                setProfSearchTerm('');
+                            }}
+                            className="w-full text-left p-3 hover:bg-slate-50 dark:hover:bg-slate-800 border-b border-slate-50 dark:border-slate-800 last:border-0 transition-colors"
+                        >
+                            <p className="text-sm font-bold text-slate-900 dark:text-white truncate">{prof.nome}</p>
+                            <p className="text-xs text-slate-500 font-mono">SUS: {prof.sus}</p>
+                        </button>
+                    ))}
+                </div>
+             )}
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide items-center">
@@ -447,6 +633,22 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         </div>
       )}
 
+      {/* Debug Logs Area - Only visible if there are logs */}
+      {debugLogs.length > 0 && (
+         <div className="bg-slate-900 text-slate-300 p-4 rounded-xl text-xs font-mono mb-4 border border-slate-700 shadow-lg">
+            <h4 className="text-yellow-400 font-bold mb-2 uppercase flex items-center gap-2">
+               <span className="material-symbols-outlined text-sm">bug_report</span> 
+               Diagnóstico de Filtro (Itens Finalizados Ocultos)
+            </h4>
+            <ul className="space-y-1">
+               {debugLogs.map((log, i) => (
+                  <li key={i} className="break-all border-b border-slate-800 pb-1 last:border-0">{log}</li>
+               ))}
+            </ul>
+            <p className="mt-2 text-[10px] text-slate-500">* Mostrando apenas os 5 primeiros itens ocultos pelo filtro de data.</p>
+         </div>
+      )}
+
       {loading ? (
         <div className="flex justify-center p-8"><span className="material-symbols-outlined animate-spin text-primary text-4xl">progress_activity</span></div>
       ) : filteredItems.length === 0 ? (
@@ -501,6 +703,16 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                     <div className="flex items-center gap-1 mt-0.5 text-slate-500 dark:text-slate-400">
                       <span className="material-symbols-outlined text-[14px]">id_card</span>
                       <span className="text-[11px] font-mono font-medium">{item.cns}</span>
+                      <span className="mx-1">•</span>
+                      <span className="material-symbols-outlined text-[14px]">event</span>
+                      <span className="text-[11px] font-mono font-medium">
+                        {(item.status === 'Finalizado' || item.status === 'Concluído' || item.status === 'Agendado Entrega') && item.dateDelivery && item.dateDelivery !== 'N/A'
+                           ? item.dateDelivery 
+                           : (item.status === 'Cancelado' && item.dateCancellation && item.dateCancellation !== 'N/A')
+                             ? item.dateCancellation
+                             : item.date
+                        }
+                      </span>
                     </div>
                   </div>
 
@@ -562,7 +774,21 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                     <DetailField label="Logradouro" value={`${item.street}, ${item.number}`} />
                     <DetailField label="Bairro" value={item.neighborhood} />
                     <DetailField label="Telefone" value={item.phone} />
-                    <DetailField label="Data Agendamento" value={item.dateScheduling} />
+                    
+                    {/* Date Fields - Conditional Display */}
+                    {item.date && item.date !== 'N/A' && (
+                      <DetailField label="Data Atendimento" value={item.date} />
+                    )}
+                    {item.dateScheduling && item.dateScheduling !== 'N/A' && (
+                      <DetailField label="Data Agendamento" value={item.dateScheduling} />
+                    )}
+                    {item.dateDelivery && item.dateDelivery !== 'N/A' && (
+                      <DetailField label="Data Entrega" value={item.dateDelivery} />
+                    )}
+                    {item.dateCancellation && item.dateCancellation !== 'N/A' && (
+                      <DetailField label="Data Cancelamento" value={item.dateCancellation} />
+                    )}
+
                     <DetailField label="Procedimento (Código)" value={item.procCode} isPrimary />
                  </div>
                  <div className="col-span-full">
@@ -757,6 +983,45 @@ const StatusDropdown = ({ currentStatus, statusColor, onChange }: any) => {
         </>
       )}
     </div>
+  );
+};
+
+const ProfessionalDetailsModal = ({ professional, onClose }: any) => {
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white dark:bg-surface-dark w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 animate-fade-in" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
+              <span className="material-symbols-outlined">badge</span>
+            </div>
+            <div>
+              <h3 className="font-bold text-lg leading-tight text-slate-900 dark:text-white">Dados Profissional</h3>
+              <p className="text-xs text-slate-500">Clique para copiar</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors">
+            <span className="material-symbols-outlined">close</span>
+          </button>
+        </div>
+
+        <div className="space-y-3">
+           <DetailField label="Nome Completo" value={professional.nome} isPrimary />
+           <DetailField label="Número SUS" value={professional.sus} />
+           <DetailField label="CBO" value={professional.cbo || 'N/A'} />
+           
+           {professional.establishments && (
+             <>
+               <div className="h-px bg-slate-100 dark:bg-slate-800 my-2"></div>
+               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Vínculo</p>
+               <DetailField label="Estabelecimento (Nome)" value={professional.establishments.name} />
+               <DetailField label="CNES" value={professional.establishments.cnes} />
+             </>
+           )}
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 };
 
