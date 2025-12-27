@@ -26,3 +26,13 @@ export const formatTitleCase = (text: string): string => {
   
   return formattedWords.join(' ');
 };
+
+export const removeAccents = (text: string): string => {
+  if (!text) return '';
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+};
+
+export const normalizeText = (text: string): string => {
+  if (!text) return '';
+  return removeAccents(text.toLowerCase().trim());
+};

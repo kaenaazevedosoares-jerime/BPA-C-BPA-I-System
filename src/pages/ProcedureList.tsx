@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { WhatsAppTemplate, UserProfile } from '../types';
 import ProcedureImportModal from '../components/ProcedureImportModal';
+import { normalizeText } from '../utils/textUtils';
 
 interface ProcedureListProps {
   onAddNew: () => void;
@@ -368,12 +369,12 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
 
   const checkSearchFilter = (item: ProcedureItem) => {
     if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
+    const term = normalizeText(searchTerm);
     return (
-      item.name.toLowerCase().includes(term) || 
+      normalizeText(item.name).includes(term) || 
       item.cns.includes(term) || 
-      item.proc.toLowerCase().includes(term) ||
-      item.procCode.includes(term)
+      normalizeText(item.proc).includes(term) ||
+      normalizeText(item.procCode).includes(term)
     );
   };
 
@@ -807,9 +808,11 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                    <button onClick={() => onEdit(item.id)} className="flex-1 py-2.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-sm font-bold hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2 mt-2">
                      <span className="material-symbols-outlined text-[18px]">edit</span> Editar
                    </button>
-                   <button onClick={() => handleDelete(item.id)} className="flex-1 py-2.5 rounded-xl bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-sm font-bold hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors flex items-center justify-center gap-2 mt-2">
-                     <span className="material-symbols-outlined text-[18px]">delete</span> Excluir
-                   </button>
+                   {userProfile?.role === 'admin' && (
+                     <button onClick={() => handleDelete(item.id)} className="flex-1 py-2.5 rounded-xl bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-sm font-bold hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors flex items-center justify-center gap-2 mt-2">
+                       <span className="material-symbols-outlined text-[18px]">delete</span> Excluir
+                     </button>
+                   )}
                  </div>
               </div>
             </details>
