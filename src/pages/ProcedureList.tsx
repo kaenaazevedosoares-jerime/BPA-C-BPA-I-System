@@ -771,9 +771,18 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                     <DetailField label="Etnia" value={item.ethnicity} />
                     <DetailField label="Cep" value={item.zipCode} />
                     <DetailField label="Municipio" value={item.city} />
-                    <DetailField label="Logradouro" value={`${item.street}, ${item.number}`} />
+                    
+                    {/* Logradouro Split Logic */}
+                    <DetailField label="Cod. Lograd." value={item.street_code} />
+                    <DetailField label="Tipo Lograd." value={item.street_type} />
+                    <DetailField label="Logradouro" value={item.street} />
+                    <DetailField label="Nº" value={item.number} />
+                    
                     <DetailField label="Bairro" value={item.neighborhood} />
-                    <DetailField label="Telefone" value={item.phone} />
+                    
+                    {/* Phone Split Logic */}
+                    <DetailField label="DDD" value={item.phone.replace(/\D/g, '').substring(0, 2)} />
+                    <DetailField label="Telefone/Celular" value={item.phone.replace(/\D/g, '').substring(2)} />
                     
                     {/* Date Fields - Conditional Display */}
                     {item.date && item.date !== 'N/A' && (
