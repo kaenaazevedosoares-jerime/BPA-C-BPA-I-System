@@ -37,10 +37,54 @@ interface ProcedureItem {
   street_type: string;
   // New fields
   sia_processed?: boolean;
+  dateSia?: string; // New field for SIA processing date
   dateDelivery?: string;
   dateCancellation?: string;
   notes?: string;
 }
+
+const SiaDateModal = ({ onClose, onConfirm }: { onClose: () => void, onConfirm: (date: string) => void }) => {
+  const [date, setDate] = useState('');
+
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white dark:bg-surface-dark w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 animate-fade-in" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-6">
+           <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-green-600 dark:text-green-400">
+                 <span className="material-symbols-outlined">event_available</span>
+              </div>
+              <div>
+                 <h3 className="font-bold text-lg leading-tight text-slate-900 dark:text-white">Data de Processamento</h3>
+                 <p className="text-xs text-slate-500">Informe a data do SIA</p>
+              </div>
+           </div>
+           <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors">
+              <span className="material-symbols-outlined">close</span>
+           </button>
+        </div>
+        
+        <input 
+          type="date" 
+          value={date} 
+          onChange={(e) => setDate(e.target.value)} 
+          className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-green-500/50 mb-4 text-slate-900 dark:text-white"
+        />
+        
+        <button 
+          onClick={() => {
+            if (!date) return alert('Selecione uma data');
+            onConfirm(date);
+          }}
+          className="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-green-500/30 transition-all flex items-center justify-center gap-2"
+        >
+           Confirmar
+        </button>
+      </div>
+    </div>,
+    document.body
+  );
+};
 
 const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
   const [items, setItems] = useState<ProcedureItem[]>([]);
@@ -58,6 +102,9 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [debugLogs, setDebugLogs] = useState<string[]>([]); // Debug state
+
+  const [showSiaModal, setShowSiaModal] = useState(false);
+  const [siaTargetId, setSiaTargetId] = useState<string | null>(null);
 
   // Professional Search State (Desktop Only)
   const [profSearchTerm, setProfSearchTerm] = useState('');
@@ -91,7 +138,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
       const { data: productionData, error: productionError } = await supabase
         .from('procedure_production')
         .select(`
-          id, status, date_service, date_scheduling, date_delivery, date_cancellation, notes, procedure_code, sia_processed,
+          id, status, date_service, date_scheduling, date_delivery, date_cancellation, notes, procedure_code, sia_processed, date_sia,
           patients (
             name, cns, birth_date, gender, nationality, race, ethnicity,
             zip_code, city, neighborhood, street, number, phone,
@@ -188,7 +235,9 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
           number: p.number || 'S/N',
           neighborhood: p.neighborhood || 'N/A',
           phone: p.phone || '',
-          sia_processed: item.sia_processed || false
+          sia_processed: item.sia_processed || false,
+          dateSia: item.date_sia ? formatDate(item.date_sia) : undefined, // Formatted for display
+          rawDateSia: getRawDate(item.date_sia) // Raw for logic
         };
       });
 
@@ -253,14 +302,69 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
       return;
     }
     
-    try {
-      const { error } = await supabase.from('procedure_production').update({ sia_processed: !currentVal }).eq('id', id);
-      if (error) throw error;
-      setItems(prev => prev.map(item => item.id === id ? { ...item, sia_processed: !currentVal } : item));
-    } catch (error) {
-      console.error('Erro ao atualizar SIA:', error);
-      alert('Erro ao atualizar status SIA.');
+    // If currently true (ON), clicking turns it OFF or EDIT?
+    // Let's assume clicking ON -> OFF (toggle).
+    // The user requirement says: "os procedimentos que estão com o botão já ativados mas sem data deverá ser mostrado de cor verde/amarelo para sinalizar que deverá ser colocado data e assim ficar de cor verde."
+    // This implies we might want to click to ADD data if missing.
+    // Logic:
+    // 1. If OFF -> Click -> Open Modal to input date -> ON + Date
+    // 2. If ON -> Click -> Ask to turn OFF? Or Edit?
+    // Let's implement: If OFF -> Open Modal. If ON -> Confirm to turn OFF.
+    
+    if (!currentVal) {
+      // Turn ON: Open Modal
+      setSiaTargetId(id);
+      setShowSiaModal(true);
+    } else {
+      // Turn OFF: Confirm
+      if (!window.confirm('Deseja remover o processamento SIA deste procedimento?')) return;
+      
+      try {
+        const { error } = await supabase.from('procedure_production')
+          .update({ sia_processed: false, date_sia: null })
+          .eq('id', id);
+
+        if (error) throw error;
+        setItems(prev => prev.map(item => item.id === id ? { ...item, sia_processed: false, dateSia: undefined, rawDateSia: null } : item));
+      } catch (error) {
+        console.error('Erro ao atualizar SIA:', error);
+        alert('Erro ao remover status SIA.');
+      }
     }
+  };
+
+  const handleSiaConfirm = async (date: string) => {
+      if (!siaTargetId) return;
+      
+      try {
+          const { error } = await supabase.from('procedure_production')
+             .update({ sia_processed: true, date_sia: date })
+             .eq('id', siaTargetId);
+          
+          if (error) throw error;
+          
+          // Helper to format date strictly from YYYY-MM-DD to DD/MM/YYYY
+          const formatDate = (dateStr: string) => {
+             try {
+               const cleanDate = dateStr.split(/[T ]/)[0];
+               return cleanDate.split('-').reverse().join('/');
+             } catch (e) {
+               return 'N/A';
+             }
+          };
+
+          setItems(prev => prev.map(item => 
+              item.id === siaTargetId 
+                  ? { ...item, sia_processed: true, dateSia: formatDate(date), rawDateSia: date } 
+                  : item
+          ));
+          
+          setShowSiaModal(false);
+          setSiaTargetId(null);
+      } catch (error) {
+          console.error('Erro ao confirmar SIA:', error);
+          alert('Erro ao salvar data do SIA.');
+      }
   };
 
   const checkDateInRange = (item: ProcedureItem, logRejection = false) => {
@@ -457,6 +561,14 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         <ProfessionalDetailsModal 
             professional={selectedProfessional} 
             onClose={() => setSelectedProfessional(null)} 
+        />
+      )}
+
+      {/* SIA Date Modal */}
+      {showSiaModal && (
+        <SiaDateModal 
+           onClose={() => { setShowSiaModal(false); setSiaTargetId(null); }}
+           onConfirm={handleSiaConfirm}
         />
       )}
 
@@ -729,11 +841,19 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                          e.stopPropagation();
                          handleToggleSia(item.id, item.sia_processed || false);
                        }}
-                       className={`group flex items-center justify-center h-9 px-3 rounded-full transition-all border shadow-sm ${item.sia_processed ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'} ${userProfile?.role === 'admin' ? 'cursor-pointer active:scale-95' : 'cursor-default opacity-80'}`}
+                       className={`group flex items-center justify-center h-9 px-3 rounded-full transition-all border shadow-sm ${
+                           item.sia_processed 
+                               ? (item.dateSia ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200' : 'bg-gradient-to-r from-green-100 to-yellow-100 text-green-800 border-green-200 hover:from-green-200 hover:to-yellow-200')
+                               : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
+                       } ${userProfile?.role === 'admin' ? 'cursor-pointer active:scale-95' : 'cursor-default opacity-80'}`}
                        title={userProfile?.role === 'admin' ? 'Alternar Status SIA' : 'Status SIA (Somente Admin)'}
                      >
                        <span className="text-[10px] font-bold uppercase mr-1">SIA</span>
-                       <div className={`w-2 h-2 rounded-full ${item.sia_processed ? 'bg-green-500' : 'bg-slate-400'}`}></div>
+                       {item.sia_processed && item.dateSia ? (
+                           <span className="text-[10px] font-bold font-mono">{item.dateSia.substring(3)}</span>
+                       ) : (
+                           <div className={`w-2 h-2 rounded-full ${item.sia_processed ? 'bg-green-500' : 'bg-slate-400'}`}></div>
+                       )}
                      </button>
 
                      {/* W: WhatsApp Button */}
@@ -960,13 +1080,21 @@ const DetailField = ({ label, value, isPrimary }: any) => {
     if (!value || value === 'N/A') return;
     navigator.clipboard.writeText(value);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    // Timeout removed to persist state until refresh/unmount
   };
   return (
-    <div onClick={handleCopy} className={`p-3 rounded-lg bg-white dark:bg-surface-dark border border-slate-100 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-all relative group select-none ${copied ? 'ring-2 ring-green-500 border-transparent' : ''}`} title="Clique para copiar">
+    <div 
+        onClick={handleCopy} 
+        className={`p-3 rounded-lg border cursor-pointer transition-all relative group select-none ${
+            copied 
+                ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 ring-1 ring-green-500' 
+                : 'bg-white dark:bg-surface-dark border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
+        }`} 
+        title="Clique para copiar"
+    >
       <div className="flex justify-between items-start">
         <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">{label}</p>
-        <span className={`material-symbols-outlined text-[14px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity ${copied ? 'text-green-500 opacity-100' : ''}`}>{copied ? 'check' : 'content_copy'}</span>
+        <span className={`material-symbols-outlined text-[14px] transition-opacity ${copied ? 'text-green-500 opacity-100' : 'text-slate-300 opacity-0 group-hover:opacity-100'}`}>{copied ? 'check' : 'content_copy'}</span>
       </div>
       <p className={`text-sm font-medium truncate ${isPrimary ? 'text-primary' : 'text-slate-700 dark:text-slate-200'}`}>{value}</p>
     </div>

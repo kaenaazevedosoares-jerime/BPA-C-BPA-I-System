@@ -159,11 +159,17 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='procedure_production' AND column_name='date_cancellation') THEN
         ALTER TABLE public.procedure_production ADD COLUMN date_cancellation TIMESTAMP WITH TIME ZONE;
     END IF;
+
+    -- Adicionar date_sia
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='procedure_production' AND column_name='date_sia') THEN
+        ALTER TABLE public.procedure_production ADD COLUMN date_sia DATE;
+    END IF;
 END $$;
 
 COMMENT ON COLUMN public.procedure_production.sia_processed IS 'Indica se o procedimento foi processado no SIA/SUS';
 COMMENT ON COLUMN public.procedure_production.date_delivery IS 'Data de entrega da prótese';
 COMMENT ON COLUMN public.procedure_production.date_cancellation IS 'Data de cancelamento do procedimento';
+COMMENT ON COLUMN public.procedure_production.date_sia IS 'Data de processamento no SIA';
 
 -- 2.8 BPA CONSOLIDADO (Header e Items)
 CREATE TABLE IF NOT EXISTS public.bpa_consolidated (
