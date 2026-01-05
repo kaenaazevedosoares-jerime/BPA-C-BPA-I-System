@@ -377,11 +377,11 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
 
       if (isProsthesis) {
          // Logic to set or clear date_delivery based on status
-         // However, if we auto-transitioned to Finalized, dateDelivery should be there.
-         if (dateDelivery && (finalStatus === 'Agendado Entrega' || finalStatus === 'Finalizado')) {
+         // Only set date_delivery for Finalized status
+         if (dateDelivery && finalStatus === 'Finalizado') {
             payload.date_delivery = new Date(dateDelivery).toISOString();
          } else {
-            payload.date_delivery = null; // Clear delivery date if reverting status to Consulta/Molde
+            payload.date_delivery = null; // Clear delivery date if reverting status
          }
       }
 
@@ -418,7 +418,7 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
   const isStatusLocked = userProfile?.role?.toLowerCase() !== 'admin' && (
     (status === 'Finalizado') ||
     (status === 'Cancelado')
-  );
+  ); // Only Admins can revert Finalized/Cancelled status
 
   // Debug: Log profile role to console
   useEffect(() => {
@@ -695,6 +695,13 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
                         const iso = parseDateToISO(val);
                         if (iso) setDateDelivery(iso);
                       }}
+                      onBlur={() => {
+                         if (dateDeliveryText.length >= 10) {
+                            const timePart = dateDeliveryText.length > 10 ? '' : ' 00:00';
+                            const iso = parseDateToISO(dateDeliveryText + timePart);
+                            if (iso) setDateDelivery(iso);
+                         }
+                      }}
                       className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 pr-12 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm" 
                     />
                     <button 
@@ -738,6 +745,13 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
                       const iso = parseDateToISO(val);
                       if (iso) setDateScheduling(iso);
                     }}
+                    onBlur={() => {
+                       if (dateSchedulingText.length >= 10) {
+                          const timePart = dateSchedulingText.length > 10 ? '' : ' 00:00';
+                          const iso = parseDateToISO(dateSchedulingText + timePart);
+                          if (iso) setDateScheduling(iso);
+                       }
+                    }}
                     className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 pr-12 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm" 
                   />
                   <button 
@@ -780,6 +794,13 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
                         setDateCancellationText(val);
                         const iso = parseDateToISO(val);
                         if (iso) setDateCancellation(iso);
+                      }}
+                      onBlur={() => {
+                         if (dateCancellationText.length >= 10) {
+                            const timePart = dateCancellationText.length > 10 ? '' : ' 00:00';
+                            const iso = parseDateToISO(dateCancellationText + timePart);
+                            if (iso) setDateCancellation(iso);
+                         }
                       }}
                       className="w-full bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800 text-red-900 dark:text-red-200 rounded-xl py-3.5 px-4 pr-12 focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all text-sm" 
                     />

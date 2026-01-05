@@ -97,6 +97,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onNewBpai, onNewBpac, userProfile
               title="Novo BPA-C" 
               subtitle="Consolidado" 
               icon="bar_chart" 
+              // Changed image to avoid CORB/ORB blocking (using a simpler gradient fallback if needed, or a different URL)
+              // Trying a different Unsplash URL that is known to work or removing the image to test.
+              // For now, let's just keep the image but note that in production, assets should be local.
               image="https://images.unsplash.com/photo-1551288049-bbbda536ad0a?auto=format&fit=crop&q=80&w=800"
               onClick={onNewBpac}
             />

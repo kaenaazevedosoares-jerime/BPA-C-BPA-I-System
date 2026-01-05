@@ -896,11 +896,13 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                       <span className="mx-1">•</span>
                       <span className="material-symbols-outlined text-[14px]">event</span>
                       <span className="text-[11px] font-mono font-medium">
-                        {(item.status === 'Finalizado' || item.status === 'Concluído' || item.status === 'Agendado Entrega') && item.dateDelivery && item.dateDelivery !== 'N/A'
-                           ? item.dateDelivery 
-                           : (item.status === 'Cancelado' && item.dateCancellation && item.dateCancellation !== 'N/A')
-                             ? item.dateCancellation
-                             : item.date
+                        {(item.status === 'Finalizado' || item.status === 'Concluído') && item.dateDelivery && item.dateDelivery !== 'N/A'
+                           ? item.dateDelivery
+                           : (item.status === 'Agendado Entrega' && item.dateScheduling && item.dateScheduling !== 'N/A')
+                             ? item.dateScheduling
+                             : (item.status === 'Cancelado' && item.dateCancellation && item.dateCancellation !== 'N/A')
+                               ? item.dateCancellation
+                               : item.date
                         }
                       </span>
                     </div>
