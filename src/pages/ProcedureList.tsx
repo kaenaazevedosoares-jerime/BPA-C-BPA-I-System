@@ -38,6 +38,11 @@ interface ProcedureItem {
   // New fields
   sia_processed?: boolean;
   dateSia?: string; // New field for SIA processing date
+  rawDateSia?: string | null;
+  rawDate?: string | null;
+  rawDateDelivery?: string | null;
+  rawDateCancellation?: string | null;
+  rawDateScheduling?: string | null;
   dateDelivery?: string;
   dateCancellation?: string;
   notes?: string;
@@ -196,7 +201,8 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
             street_code, street_type
           )
         `)
-        .order('date_service', { ascending: false })
+        .order('date_sia', { ascending: false, nullsFirst: false }) // Prioritize SIA date sorting
+        .order('date_service', { ascending: false }) // Fallback to service date
         .limit(2000); // Increased limit to ensure we get more records
 
       if (productionError) throw productionError;
@@ -270,6 +276,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
           rawDate: getRawDate(item.date_service),
           rawDateDelivery: getRawDate(item.date_delivery),
           rawDateCancellation: getRawDate(item.date_cancellation),
+          rawDateScheduling: getRawDate(item.date_scheduling), // Added for filtering logic
           notes: item.notes || '',
           avatar: '',
           cns: p.cns || 'N/A',
@@ -432,46 +439,75 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
     // If no date range is set, everything passes
     if (!dateStart && !dateEnd) return true;
 
-    const currentStatus = item.status.trim();
+    // --- SIA Date Priority Logic ---
+    // If SIA is processed and we are filtering for processed items (or implicitly viewing them),
+    // we should prioritize the SIA Date for filtering if available.
+    // However, the requirement says: "ao usuar o filtro do intervalo de datas, filtre com base no data do do processa,ento sia se o mesmo estiver acionado."
+    // This implies that IF SIA filter is ON ('processed'), we use SIA Date.
+    
     let dateToCompare = item.rawDate; // Default fallback: Service Date
     let dateSource = 'Service';
 
-    // 1. Determine which date to use based on status
-    if (currentStatus === 'Finalizado' || currentStatus === 'Concluído' || currentStatus === 'Agendado Entrega') {
-       if (item.rawDateDelivery) {
-         dateToCompare = item.rawDateDelivery;
-         dateSource = 'Delivery';
-       } else {
-         // Fallback explicitly to Service Date if Delivery is missing
-         dateToCompare = item.rawDate; 
-         dateSource = 'Fallback Service';
+    if (filterSia === 'processed' && item.rawDateSia) {
+       dateToCompare = item.rawDateSia;
+       dateSource = 'SIA Processing';
+    } else {
+       // Standard Logic (Status Based)
+       const currentStatus = item.status.trim();
+       
+       if (currentStatus === 'Finalizado' || currentStatus === 'Concluído') {
+          if (item.rawDateDelivery) {
+            dateToCompare = item.rawDateDelivery;
+            dateSource = 'Delivery';
+          } else {
+            // Fallback explicitly to Service Date if Delivery is missing
+            dateToCompare = item.rawDate; 
+            dateSource = 'Fallback Service';
+          }
+       } else if (currentStatus === 'Agendado Entrega') {
+           if (item.dateScheduling) {
+               // Need to convert dd/mm/yyyy back to yyyy-mm-dd for comparison if raw is not available
+               // But we have dateScheduling string. Let's try to use a raw prop if added, or parse.
+               // Adding rawDateScheduling to items would be cleaner, but let's parse for now if needed.
+               // Wait, items map has `dateScheduling` formatted.
+               // Let's assume we add `rawDateScheduling` to item interface for consistency.
+               // UPDATE: Added rawDateScheduling logic below in mapping.
+               // For now, let's use the dateScheduling string parsing if raw missing.
+               
+               // Actually, let's look at the mapping logic. We can add rawDateScheduling there.
+               // Assuming rawDateScheduling is available on item (we will add it).
+               if ((item as any).rawDateScheduling) {
+                   dateToCompare = (item as any).rawDateScheduling;
+                   dateSource = 'Scheduling';
+               }
+           }
+       } else if (currentStatus === 'Cancelado') {
+          if (item.rawDateCancellation) {
+            dateToCompare = item.rawDateCancellation;
+            dateSource = 'Cancellation';
+          } else {
+            dateToCompare = item.rawDate;
+            dateSource = 'Fallback Service';
+          }
+       } else if (currentStatus === 'CNS Inválido' || currentStatus === 'SUS Inválido') {
+           dateToCompare = item.rawDate;
+           dateSource = 'Service (Invalid CNS)';
        }
-    } else if (currentStatus === 'Cancelado') {
-       if (item.rawDateCancellation) {
-         dateToCompare = item.rawDateCancellation;
-         dateSource = 'Cancellation';
-       } else {
-         dateToCompare = item.rawDate;
-         dateSource = 'Fallback Service';
-       }
-    } else if (currentStatus === 'CNS Inválido' || currentStatus === 'SUS Inválido') {
-        dateToCompare = item.rawDate;
-        dateSource = 'Service (Invalid CNS)';
     }
 
     // 2. If absolutely no date found, it fails the range filter
     if (!dateToCompare) {
-       if (logRejection) console.log(`Rejected ${item.name} (${currentStatus}): No Date`);
+       if (logRejection) console.log(`Rejected ${item.name} (${item.status}): No Date`);
        return false;
     }
 
     // 3. Compare dates (YYYY-MM-DD string comparison)
     if (dateStart && dateToCompare < dateStart) {
-       if (logRejection) console.log(`Rejected ${item.name} (${currentStatus}): ${dateToCompare} < ${dateStart} (${dateSource})`);
+       if (logRejection) console.log(`Rejected ${item.name}: ${dateToCompare} < ${dateStart} (${dateSource})`);
        return false;
     }
     if (dateEnd && dateToCompare > dateEnd) {
-       if (logRejection) console.log(`Rejected ${item.name} (${currentStatus}): ${dateToCompare} > ${dateEnd} (${dateSource})`);
+       if (logRejection) console.log(`Rejected ${item.name}: ${dateToCompare} > ${dateEnd} (${dateSource})`);
        return false;
     }
 
