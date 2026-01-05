@@ -18,6 +18,7 @@ interface ImportPreview {
   date_cancellation?: string | null;
   date_scheduling?: string | null;
   sia_processed?: boolean;
+  date_sia?: string | null;
   valid: boolean;
   error?: string;
   patient_id?: string;
@@ -28,6 +29,7 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
   const [previewData, setPreviewData] = useState<ImportPreview[]>([]);
   const [importing, setImporting] = useState(false);
   const [step, setStep] = useState<'upload' | 'preview'>('upload');
+  const [missingPatients, setMissingPatients] = useState<Map<string, string>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Helper to normalize date string to YYYY-MM-DD for comparison
@@ -81,35 +83,49 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
         const { data: patients } = await supabase.from('patients').select('id, cns, name');
         const { data: procedures } = await supabase.from('procedures_catalog').select('code');
         
+        // Helper to normalize CNS (numbers only)
+        const normalizeCns = (cns: string) => String(cns).replace(/\D/g, '');
+
+        // Build maps for faster lookup
+        const patientMap = new Map();
+        patients?.forEach(p => {
+           if (p.cns) patientMap.set(normalizeCns(p.cns), p.id);
+        });
+
+        const procedureSet = new Set(procedures?.map(p => p.code));
+        
         // Fetch existing production records to check for duplicates
         // We fetch fields needed to identify uniqueness: patient_id (via CNS map), procedure_code, date_service
         // Since dataset might be large, we might want to filter, but for now fetching all for client-side check is safest if not huge.
         // Optimization: Filter by CNSs present in the file if possible, but let's do a broad check first or just check during loop if array is small.
         // Better: Fetch all production for the CNSs in the file.
-        const uniqueCnsInFile = [...new Set(jsonData.map(row => String(row['CNS_PACIENTE'] || '').trim()).filter(Boolean))];
+        const uniqueCnsInFile = [...new Set(jsonData.map(row => normalizeCns(row['CNS_PACIENTE'] || '')))].filter(Boolean);
         
         let existingRecords: any[] = [];
         if (uniqueCnsInFile.length > 0) {
            // Batch fetch? Supabase 'in' limit is usually high enough for typical imports
-           const { data: production } = await supabase
-             .from('procedure_production')
-             .select('patient_id, procedure_code, date_service, status')
-             .in('patient_id', patients?.filter(p => uniqueCnsInFile.includes(p.cns)).map(p => p.id) || []);
-           existingRecords = production || [];
+           const patientIdsToCheck = uniqueCnsInFile.map(cns => patientMap.get(cns)).filter(Boolean);
+           
+           if (patientIdsToCheck.length > 0) {
+              const { data: production } = await supabase
+                .from('procedure_production')
+                .select('patient_id, procedure_code, date_service, status')
+                .in('patient_id', patientIdsToCheck);
+              existingRecords = production || [];
+           }
         }
 
-        const patientMap = new Map(patients?.map(p => [p.cns, p.id]));
-        const procedureSet = new Set(procedures?.map(p => p.code));
-        
         // Build a set of existing keys: patientId-procCode-dateService(YYYY-MM-DD)
         const existingSet = new Set(existingRecords.map(r => {
            return `${r.patient_id}-${r.procedure_code}-${normalizeDate(r.date_service)}`;
         }));
 
         const currentBatchKeys = new Set<string>(); // To track duplicates within the file itself
+        const missingMap = new Map<string, string>(); // Track missing patients in this batch
 
         for (const row of jsonData) {
-          const cns = String(row['CNS_PACIENTE'] || '').trim();
+          const cnsRaw = String(row['CNS_PACIENTE'] || '').trim();
+          const cns = normalizeCns(cnsRaw); // Use normalized CNS for logic
           const name = String(row['NOME_PACIENTE'] || '').trim();
           const procCode = String(row['CODIGO_PROCEDIMENTO'] || '').trim();
           const status = String(row['STATUS'] || 'Agendado').trim();
@@ -124,22 +140,45 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
           const dateScheduling = parseExcelDate(row['DATA_AGENDAMENTO']);
           
           const siaProcessedRaw = String(row['PROCESSADO_SIA'] || '').toUpperCase();
-          const siaProcessed = siaProcessedRaw === 'SIM' || siaProcessedRaw === 'YES' || siaProcessedRaw === 'TRUE';
+          let siaProcessed = siaProcessedRaw === 'SIM' || siaProcessedRaw === 'YES' || siaProcessedRaw === 'TRUE';
+          let dateSia = null;
+
+          // If PROCESSADO_SIA is a date, treat as processed with date
+          const parsedSiaDate = parseExcelDate(row['PROCESSADO_SIA']);
+          if (parsedSiaDate) {
+             siaProcessed = true;
+             dateSia = parsedSiaDate;
+          }
+          
+          // Explicit column check
+          const explicitSiaDate = parseExcelDate(row['DATA_PROCESSAMENTO_SIA']);
+          if (explicitSiaDate) {
+             siaProcessed = true;
+             dateSia = explicitSiaDate;
+          }
 
           let valid = true;
           let error = '';
           let patientId = undefined;
 
           // Validation Logic
+          // Try to find patient by CNS (normalized)
+          if (cns) {
+             patientId = patientMap.get(cns);
+          }
+
+          if (!patientId) {
+             valid = false;
+             error = 'Paciente não encontrado';
+             // If we have CNS and Name, mark as candidate for auto-registration
+             if (cns && name) {
+                 missingMap.set(cns, name);
+             }
+          }
+          
           if (!cns) {
-            valid = false;
-            error = 'CNS obrigatório';
-          } else {
-            patientId = patientMap.get(cns);
-            if (!patientId) {
-               valid = false;
-               error = 'Paciente não encontrado';
-            }
+             valid = false;
+             error = 'CNS obrigatório';
           }
 
           if (!procCode) {
@@ -195,12 +234,14 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
             date_cancellation: dateCancellation,
             date_scheduling: dateScheduling,
             sia_processed: siaProcessed,
+            date_sia: dateSia,
             valid,
             error,
             patient_id: patientId
           });
         }
 
+        setMissingPatients(missingMap);
         setPreviewData(processed);
         setStep('preview');
 
@@ -227,6 +268,7 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
         date_cancellation: item.date_cancellation,
         date_scheduling: item.date_scheduling,
         sia_processed: item.sia_processed,
+        date_sia: item.date_sia,
         created_at: new Date().toISOString()
       }));
 
@@ -245,37 +287,113 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
     }
   };
 
-  const downloadTemplate = () => {
-    // Headers with new fields
-    const headers = [['CNS_PACIENTE', 'NOME_PACIENTE', 'CODIGO_PROCEDIMENTO', 'DATA_ATENDIMENTO', 'DATA_CONSULTA_MOLDE', 'STATUS', 'DATA_ENTREGA', 'DATA_CANCELAMENTO', 'DATA_AGENDAMENTO', 'PROCESSADO_SIA']];
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(headers);
+  const handleRegisterMissing = async () => {
+     if (missingPatients.size === 0) return;
+     if (!window.confirm(`Deseja cadastrar ${missingPatients.size} novos pacientes automaticamente?`)) return;
 
-    // Data Validation for STATUS column (Column E, index 4)
-    // The range E2:E1000 will have the dropdown.
-    const validStatuses = ["Agendado", "Em Produção", "Consulta/Molde", "Agendado Entrega", "Finalizado", "Cancelado", "Em Atendimento"];
-    
-    // @ts-ignore
-    if (!ws['!dataValidation']) ws['!dataValidation'] = [];
-    
-    // @ts-ignore
-    ws['!dataValidation'].push({
-      sqref: "E2:E1000",
-      type: "list",
-      operator: "equal",
-      formula1: `"${validStatuses.join(',')}"`,
-      showErrorMessage: true,
-      errorTitle: "Status Inválido",
-      error: "Por favor selecione um status da lista."
-    });
+     setImporting(true);
+     try {
+        const patientsToInsert = Array.from(missingPatients.entries()).map(([cns, name]) => ({
+            cns,
+            name,
+            // other fields null
+        }));
+        
+        const { data, error } = await supabase.from('patients').insert(patientsToInsert).select('id, cns');
+        if (error) throw error;
+        
+        // Update previewData with new IDs
+        const newMap = new Map(data.map(p => [String(p.cns).replace(/\D/g, ''), p.id]));
+        
+        setPreviewData(prev => prev.map(item => {
+            const itemCns = String(item.cns).replace(/\D/g, '');
+            if (!item.valid && item.error === 'Paciente não encontrado' && newMap.has(itemCns)) {
+                return {
+                    ...item,
+                    valid: true,
+                    error: undefined,
+                    patient_id: newMap.get(itemCns)
+                };
+            }
+            return item;
+        }));
+        
+        setMissingPatients(new Map()); // Clear missing list
+        alert('Pacientes cadastrados com sucesso! Agora você pode confirmar a importação.');
+     } catch (e: any) {
+         console.error('Erro ao cadastrar pacientes:', e);
+         alert('Erro ao cadastrar pacientes: ' + e.message);
+     } finally {
+         setImporting(false);
+     }
+  };
 
-    // Add instructions or sample row
-    XLSX.utils.sheet_add_aoa(ws, [[
-      '700000000000000', 'João Silva', '0301010072', '01/01/2024 10:00', 'Agendado', '', '', '', 'NÃO'
-    ]], { origin: "A2" });
+  const downloadTemplate = async () => {
+    // Fetch current data from Supabase
+    try {
+       const { data, error } = await supabase
+         .from('procedure_production')
+         .select(`
+           *,
+           patients (cns, name)
+         `);
 
-    XLSX.utils.book_append_sheet(wb, ws, 'Modelo Importação');
-    XLSX.writeFile(wb, 'modelo_importacao_bpai_v3.xlsx');
+       if (error) throw error;
+
+       // Map to template structure
+       const rows = data ? data.map(item => ({
+          'CNS_PACIENTE': item.patients?.cns || '',
+          'NOME_PACIENTE': item.patients?.name || '',
+          'CODIGO_PROCEDIMENTO': item.procedure_code,
+          'DATA_ATENDIMENTO': item.date_service ? new Date(item.date_service).toLocaleString('pt-BR') : '',
+          'DATA_CONSULTA_MOLDE': item.date_service ? new Date(item.date_service).toLocaleString('pt-BR') : '',
+          'STATUS': item.status,
+          'DATA_ENTREGA': item.date_delivery ? new Date(item.date_delivery).toLocaleString('pt-BR') : '',
+          'DATA_CANCELAMENTO': item.date_cancellation ? new Date(item.date_cancellation).toLocaleString('pt-BR') : '',
+          'DATA_AGENDAMENTO': item.date_scheduling ? new Date(item.date_scheduling).toLocaleString('pt-BR') : '',
+          'PROCESSADO_SIA': item.sia_processed ? 'SIM' : 'NÃO',
+          'DATA_PROCESSAMENTO_SIA': item.date_sia ? new Date(item.date_sia).toLocaleDateString('pt-BR') : ''
+       })) : [];
+
+       // Headers with new fields
+       const headers = ['CNS_PACIENTE', 'NOME_PACIENTE', 'CODIGO_PROCEDIMENTO', 'DATA_ATENDIMENTO', 'DATA_CONSULTA_MOLDE', 'STATUS', 'DATA_ENTREGA', 'DATA_CANCELAMENTO', 'DATA_AGENDAMENTO', 'PROCESSADO_SIA', 'DATA_PROCESSAMENTO_SIA'];
+       
+       const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
+       const wb = XLSX.utils.book_new();
+
+       // Data Validation for STATUS column (Column E, index 4)
+       // The range E2:E5000 will have the dropdown.
+       const validStatuses = ["Agendado", "Em Produção", "Consulta/Molde", "Agendado Entrega", "Finalizado", "Cancelado", "Em Atendimento"];
+       
+       // @ts-ignore
+       if (!ws['!dataValidation']) ws['!dataValidation'] = [];
+       
+       // @ts-ignore
+       ws['!dataValidation'].push({
+         sqref: "F2:F5000", // STATUS is column F (index 5) in 0-based header array if count is 10? Wait.
+         // A=0, B=1, C=2, D=3, E=4, F=5. Yes, STATUS is index 5.
+         type: "list",
+         operator: "equal",
+         formula1: `"${validStatuses.join(',')}"`,
+         showErrorMessage: true,
+         errorTitle: "Status Inválido",
+         error: "Por favor selecione um status da lista."
+       });
+
+       // If no data, add sample row
+       if (rows.length === 0) {
+         XLSX.utils.sheet_add_aoa(ws, [[
+           '700000000000000', 'Exemplo Silva', '0301010072', '01/01/2024 10:00', '', 'Agendado', '', '', '', 'NÃO', ''
+         ]], { origin: "A2" });
+       }
+
+       XLSX.utils.book_append_sheet(wb, ws, 'Dados do Sistema');
+       XLSX.writeFile(wb, `dados_bpai_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+    } catch (err) {
+       console.error('Error downloading template data:', err);
+       alert('Erro ao baixar dados do sistema.');
+    }
   };
 
   const downloadErrors = () => {
@@ -404,6 +522,7 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
         {/* Footer */}
         {step === 'preview' && (
           <div className="mt-6 flex justify-between gap-3 shrink-0">
+             <div className="flex gap-3">
              {previewData.some(i => !i.valid) && (
                <button 
                  onClick={downloadErrors}
@@ -413,6 +532,20 @@ const ProcedureImportModal: React.FC<ProcedureImportModalProps> = ({ onClose, on
                  Baixar Erros
                </button>
              )}
+             
+             {/* Auto Register Button */}
+             {missingPatients.size > 0 && (
+                <button
+                  onClick={handleRegisterMissing}
+                  disabled={importing}
+                  className="px-4 py-3 rounded-xl font-bold text-amber-600 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors flex items-center gap-2 border border-amber-200 dark:border-amber-800"
+                >
+                  <span className="material-symbols-outlined">person_add</span>
+                  Cadastrar {missingPatients.size} Pacientes Faltantes
+                </button>
+             )}
+             </div>
+
              <div className="flex gap-3 ml-auto">
             <button 
               onClick={onClose}

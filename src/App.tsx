@@ -25,6 +25,7 @@ const App: React.FC = () => {
   });
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [patientToFix, setPatientToFix] = useState<{ cns: string, name: string } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [session, setSession] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -114,12 +115,18 @@ const App: React.FC = () => {
   const navigateTo = (view: View) => {
     setCurrentView(view);
     setEditingId(null); // Clear editing state when navigating
+    setPatientToFix(null); // Clear patient fix state
     setIsSidebarOpen(false);
   };
 
   const handleEditProcedure = (id: string) => {
     setEditingId(id);
     setCurrentView('procedure-form');
+  };
+
+  const handleFixPatient = (patient: { cns: string, name: string }) => {
+    setPatientToFix(patient);
+    setCurrentView('patient-reg');
   };
 
   const handleEditProfissional = (id: string) => {
@@ -144,6 +151,8 @@ const App: React.FC = () => {
           onCancel={() => navigateTo('dashboard')} 
           onSave={() => navigateTo('dashboard')} 
           userRole={userProfile?.role}
+          initialCns={patientToFix?.cns}
+          initialName={patientToFix?.name}
         />;
       case 'procedure-form':
         return <ProcedureForm onCancel={() => navigateTo('procedure-list')} onSave={() => navigateTo('procedure-list')} initialId={editingId} />;
@@ -210,6 +219,7 @@ const App: React.FC = () => {
             currentView === 'patient-reg' ? 'REGISTRO PACIENTE' :
             currentView.charAt(0).toUpperCase() + currentView.slice(1).replace('-', ' ')
           }
+          onFixPatient={handleFixPatient}
         />
         
         <main className="flex-1 overflow-y-auto">

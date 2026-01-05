@@ -86,6 +86,44 @@ const SiaDateModal = ({ onClose, onConfirm }: { onClose: () => void, onConfirm: 
   );
 };
 
+const ConfirmationModal = ({ title, message, onConfirm, onClose }: { title: string, message: string, onConfirm: () => void, onClose: () => void }) => {
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white dark:bg-surface-dark w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 animate-fade-in" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+           <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600 dark:text-red-400">
+                 <span className="material-symbols-outlined">warning</span>
+              </div>
+              <h3 className="font-bold text-lg leading-tight text-slate-900 dark:text-white">{title}</h3>
+           </div>
+           <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors">
+              <span className="material-symbols-outlined">close</span>
+           </button>
+        </div>
+        
+        <p className="text-slate-600 dark:text-slate-300 mb-6">{message}</p>
+        
+        <div className="flex gap-3">
+          <button 
+            onClick={onClose}
+            className="flex-1 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+          >
+            Cancelar
+          </button>
+          <button 
+            onClick={() => { onConfirm(); onClose(); }}
+            className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shadow-lg shadow-red-500/30 transition-colors"
+          >
+            Confirmar
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
 const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
   const [items, setItems] = useState<ProcedureItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,6 +143,19 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
 
   const [showSiaModal, setShowSiaModal] = useState(false);
   const [siaTargetId, setSiaTargetId] = useState<string | null>(null);
+  
+  // Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
 
   // Professional Search State (Desktop Only)
   const [profSearchTerm, setProfSearchTerm] = useState('');
@@ -272,15 +323,21 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Tem certeza que deseja excluir este procedimento? Esta ação não pode ser desfeita.')) return;
-    try {
-      const { error } = await supabase.from('procedure_production').delete().eq('id', id);
-      if (error) throw error;
-      setItems(prev => prev.filter(item => item.id !== id));
-    } catch (error) {
-      console.error('Erro ao excluir:', error);
-      alert('Erro ao excluir procedimento.');
-    }
+    setConfirmModal({
+        isOpen: true,
+        title: 'Excluir Procedimento',
+        message: 'Tem certeza que deseja excluir este procedimento? Esta ação não pode ser desfeita.',
+        onConfirm: async () => {
+             try {
+              const { error } = await supabase.from('procedure_production').delete().eq('id', id);
+              if (error) throw error;
+              setItems(prev => prev.filter(item => item.id !== id));
+            } catch (error) {
+              console.error('Erro ao excluir:', error);
+              alert('Erro ao excluir procedimento.');
+            }
+        }
+    });
   };
 
   useEffect(() => { 
@@ -296,41 +353,45 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
     fetchProfile();
   }, []);
 
-  const handleToggleSia = async (id: string, currentVal: boolean) => {
+  const handleToggleSia = async (id: string, currentVal: boolean, hasDate: boolean) => {
     if (userProfile?.role !== 'admin') {
       alert('Apenas administradores podem alterar o status SIA.');
       return;
     }
     
-    // If currently true (ON), clicking turns it OFF or EDIT?
-    // Let's assume clicking ON -> OFF (toggle).
-    // The user requirement says: "os procedimentos que estão com o botão já ativados mas sem data deverá ser mostrado de cor verde/amarelo para sinalizar que deverá ser colocado data e assim ficar de cor verde."
-    // This implies we might want to click to ADD data if missing.
-    // Logic:
-    // 1. If OFF -> Click -> Open Modal to input date -> ON + Date
-    // 2. If ON -> Click -> Ask to turn OFF? Or Edit?
-    // Let's implement: If OFF -> Open Modal. If ON -> Confirm to turn OFF.
-    
+    // Case 1: Not processed -> Open Modal to set date (and mark as processed)
     if (!currentVal) {
-      // Turn ON: Open Modal
       setSiaTargetId(id);
       setShowSiaModal(true);
-    } else {
-      // Turn OFF: Confirm
-      if (!window.confirm('Deseja remover o processamento SIA deste procedimento?')) return;
-      
-      try {
-        const { error } = await supabase.from('procedure_production')
-          .update({ sia_processed: false, date_sia: null })
-          .eq('id', id);
-
-        if (error) throw error;
-        setItems(prev => prev.map(item => item.id === id ? { ...item, sia_processed: false, dateSia: undefined, rawDateSia: null } : item));
-      } catch (error) {
-        console.error('Erro ao atualizar SIA:', error);
-        alert('Erro ao remover status SIA.');
-      }
+      return;
     }
+
+    // Case 2: Processed but missing date -> Open Modal to set date
+    if (currentVal && !hasDate) {
+       setSiaTargetId(id);
+       setShowSiaModal(true);
+       return;
+    }
+
+    // Case 3: Processed and has date -> Confirm to Remove
+    setConfirmModal({
+        isOpen: true,
+        title: 'Remover Status SIA',
+        message: 'Deseja remover o processamento SIA deste procedimento? A data registrada será apagada.',
+        onConfirm: async () => {
+             try {
+                const { error } = await supabase.from('procedure_production')
+                  .update({ sia_processed: false, date_sia: null })
+                  .eq('id', id);
+
+                if (error) throw error;
+                setItems(prev => prev.map(item => item.id === id ? { ...item, sia_processed: false, dateSia: undefined, rawDateSia: null } : item));
+              } catch (error) {
+                console.error('Erro ao atualizar SIA:', error);
+                alert('Erro ao remover status SIA.');
+              }
+        }
+    });
   };
 
   const handleSiaConfirm = async (date: string) => {
@@ -509,23 +570,29 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
 
   const handleBulkDelete = async () => {
     if (selectedItems.size === 0) return;
-    if (!window.confirm(`Tem certeza que deseja excluir ${selectedItems.size} procedimentos? Esta ação não pode ser desfeita.`)) return;
+    
+    setConfirmModal({
+        isOpen: true,
+        title: 'Excluir Procedimentos',
+        message: `Tem certeza que deseja excluir ${selectedItems.size} procedimentos? Esta ação não pode ser desfeita.`,
+        onConfirm: async () => {
+             try {
+              const { error } = await supabase
+                .from('procedure_production')
+                .delete()
+                .in('id', Array.from(selectedItems));
 
-    try {
-      const { error } = await supabase
-        .from('procedure_production')
-        .delete()
-        .in('id', Array.from(selectedItems));
+              if (error) throw error;
 
-      if (error) throw error;
-
-      setItems(prev => prev.filter(item => !selectedItems.has(item.id)));
-      setSelectedItems(new Set());
-      alert('Procedimentos excluídos com sucesso!');
-    } catch (error) {
-      console.error('Erro ao excluir procedimentos:', error);
-      alert('Erro ao excluir procedimentos.');
-    }
+              setItems(prev => prev.filter(item => !selectedItems.has(item.id)));
+              setSelectedItems(new Set());
+              alert('Procedimentos excluídos com sucesso!');
+            } catch (error) {
+              console.error('Erro ao excluir procedimentos:', error);
+              alert('Erro ao excluir procedimentos.');
+            }
+        }
+    });
   };
 
   const getCount = (status: string) => {
@@ -569,6 +636,16 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         <SiaDateModal 
            onClose={() => { setShowSiaModal(false); setSiaTargetId(null); }}
            onConfirm={handleSiaConfirm}
+        />
+      )}
+
+      {/* Generic Confirmation Modal */}
+      {confirmModal.isOpen && (
+        <ConfirmationModal
+           title={confirmModal.title}
+           message={confirmModal.message}
+           onConfirm={confirmModal.onConfirm}
+           onClose={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
         />
       )}
 
@@ -839,7 +916,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                      <button 
                        onClick={(e) => {
                          e.stopPropagation();
-                         handleToggleSia(item.id, item.sia_processed || false);
+                         handleToggleSia(item.id, item.sia_processed || false, !!item.dateSia);
                        }}
                        className={`group flex items-center justify-center h-9 px-3 rounded-full transition-all border shadow-sm ${
                            item.sia_processed 
@@ -907,7 +984,10 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                     
                     {/* Date Fields - Conditional Display */}
                     {item.date && item.date !== 'N/A' && (
-                      <DetailField label="Data Atendimento" value={item.date} />
+                      <DetailField 
+                        label={(item.proc.toLowerCase().includes('prótese') || item.proc.toLowerCase().includes('protese')) ? "Data Consulta/Molde" : "Data Atendimento"} 
+                        value={item.date} 
+                      />
                     )}
                     {item.dateScheduling && item.dateScheduling !== 'N/A' && (
                       <DetailField label="Data Agendamento" value={item.dateScheduling} />

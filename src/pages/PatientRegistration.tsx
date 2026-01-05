@@ -130,6 +130,52 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
     fetchPatients();
   }, [fetchCatalogs, fetchPatients]);
 
+  // Check for existing patient if initialCns is provided (Fix Notification Flow)
+  useEffect(() => {
+    const checkExistingPatient = async () => {
+      if (!initialCns) return;
+
+      const cleanCns = initialCns.replace(/\D/g, '');
+      if (!cleanCns) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('patients')
+          .select('*')
+          .eq('cns', cleanCns)
+          .maybeSingle();
+
+        if (data) {
+          setEditingId(data.id);
+          setFormData(prev => ({
+            ...prev,
+            ...data,
+            // Ensure fields match form state requirements
+            birth_date: data.birth_date || '',
+            gender: data.gender || 'Masculino',
+            nationality: data.nationality || 'Brasileira',
+            race: data.race || '',
+            ethnicity: data.ethnicity || '',
+            zip_code: data.zip_code || '',
+            city: data.city || '',
+            neighborhood: data.neighborhood || '',
+            street_code: data.street_code || '',
+            street_type: data.street_type || '',
+            street: data.street || '',
+            number: data.number || '',
+            complement: data.complement || '',
+            phone: data.phone || '',
+            email: data.email || ''
+          }));
+        }
+      } catch (err) {
+        console.error("Error checking existing patient:", err);
+      }
+    };
+
+    checkExistingPatient();
+  }, [initialCns]);
+
   const handleChange = (field: string, value: string) => {
     let newValue = value;
     

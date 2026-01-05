@@ -136,14 +136,9 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
 
   // Auto-Finalize Logic for Prosthesis
   // Refined Logic:
-  // If Prosthesis AND (Status is NOT Finalized/Cancelled) AND DateDelivery is Valid -> Set Finalized
-  useEffect(() => {
-    if (isProsthesis && status !== 'Finalizado' && status !== 'Cancelado') {
-       if (dateDelivery && dateDelivery.length >= 16) {
-          setStatus('Finalizado');
-       }
-    }
-  }, [dateDelivery, isProsthesis, status]);
+  // Only auto-finalize if status is explicitly changed TO 'Finalizado' or if date is added while in a production status.
+  // We removed the aggressive useEffect that forced 'Finalizado' if dateDelivery existed.
+  // This allows Admins to revert status even if dateDelivery is present (it will be cleared on save if not Finalized).
 
   // Fetch data for editing
   useEffect(() => {
@@ -420,10 +415,15 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
     }
   };
 
-  const isStatusLocked = (
-    (status === 'Finalizado' && userProfile?.role !== 'admin') ||
+  const isStatusLocked = userProfile?.role?.toLowerCase() !== 'admin' && (
+    (status === 'Finalizado') ||
     (status === 'Cancelado')
   );
+
+  // Debug: Log profile role to console
+  useEffect(() => {
+    if (userProfile) console.log('Current User Role:', userProfile.role);
+  }, [userProfile]);
 
   return (
     <div className="max-w-xl mx-auto p-4 pb-24 space-y-6 animate-fade-in">
@@ -678,8 +678,8 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
                 </div>
               </div>
 
-              {/* Delivery Date - Only for Prosthesis & specific statuses */}
-              {isProsthesis && (status === 'Agendado Entrega' || status === 'Finalizado') && (
+              {/* Delivery Date - Only for Finalized */}
+              {isProsthesis && (status === 'Finalizado') && (
                 <div className="group animate-fade-in">
                   <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase text-primary">Data Entrega *</label>
                   <div className="relative">
@@ -720,7 +720,50 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
                   </div>
                 </div>
               )}
-              
+
+              {/* Scheduling Date - For Agendado Entrega OR Non-Prosthesis */}
+              {((isProsthesis && status === 'Agendado Entrega') || (!isProsthesis && status !== 'Cancelado')) && (
+                <div className="group animate-fade-in">
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase text-primary">Data Agendamento</label>
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    inputMode="numeric"
+                    value={dateSchedulingText}
+                    placeholder="dd/mm/aaaa hh:mm"
+                    maxLength={16}
+                    onChange={(e) => {
+                      const val = applyDateMask(e.target.value);
+                      setDateSchedulingText(val);
+                      const iso = parseDateToISO(val);
+                      if (iso) setDateScheduling(iso);
+                    }}
+                    className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 pr-12 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm" 
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const input = document.getElementById('date-scheduling-picker') as HTMLInputElement;
+                      if (input) input.showPicker();
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-primary transition-colors"
+                  >
+                    <span className="material-symbols-outlined">event</span>
+                  </button>
+                  <input
+                    id="date-scheduling-picker"
+                    type="datetime-local"
+                    className="sr-only"
+                    value={dateScheduling}
+                    onChange={(e) => {
+                      setDateScheduling(e.target.value);
+                      setDateSchedulingText(formatDateToMask(e.target.value));
+                    }}
+                  />
+                </div>
+              </div>
+              )}
+
               {/* Cancellation Date - Only if Cancelled */}
               {status === 'Cancelado' && (
                 <div className="group animate-fade-in">
@@ -762,49 +805,6 @@ const ProcedureForm: React.FC<ProcedureFormProps> = ({ onCancel, onSave, initial
                     />
                   </div>
                 </div>
-              )}
-
-              {/* Regular Scheduling Date - For Non-Prosthesis or if needed */}
-              {!isProsthesis && status !== 'Cancelado' && (
-                <div className="group">
-                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase text-primary">Data Agendamento</label>
-                <div className="relative">
-                  <input 
-                    type="text" 
-                    inputMode="numeric"
-                    value={dateSchedulingText}
-                    placeholder="dd/mm/aaaa hh:mm"
-                    maxLength={16}
-                    onChange={(e) => {
-                      const val = applyDateMask(e.target.value);
-                      setDateSchedulingText(val);
-                      const iso = parseDateToISO(val);
-                      if (iso) setDateScheduling(iso);
-                    }}
-                    className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 px-4 pr-12 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm" 
-                  />
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      const input = document.getElementById('date-scheduling-picker') as HTMLInputElement;
-                      if (input) input.showPicker();
-                    }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-primary transition-colors"
-                  >
-                    <span className="material-symbols-outlined">event</span>
-                  </button>
-                  <input
-                    id="date-scheduling-picker"
-                    type="datetime-local"
-                    className="sr-only"
-                    value={dateScheduling}
-                    onChange={(e) => {
-                      setDateScheduling(e.target.value);
-                      setDateSchedulingText(formatDateToMask(e.target.value));
-                    }}
-                  />
-                </div>
-              </div>
               )}
             </div>
 
