@@ -17,12 +17,17 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
     endereco: '',
     telefone: '',
     email: '',
-    establishment_id: ''
+    establishment_id: '',
+    access_password: ''
   });
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [loading, setLoading] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
   const [establishments, setEstablishments] = useState<any[]>([]);
+  const [professionSuggestions, setProfessionSuggestions] = useState<any[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchTimer, setSearchTimer] = useState<number | null>(null);
+  const [suggestionError, setSuggestionError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchEstablishments = async () => {
@@ -31,6 +36,42 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
     };
     fetchEstablishments();
   }, []);
+
+  const handleSearchProfession = (text: string) => {
+    handleInputChange('profissao', text);
+    
+    if (searchTimer) clearTimeout(searchTimer);
+
+    if (text.length < 1) {
+      setProfessionSuggestions([]);
+      setShowSuggestions(false);
+      setSuggestionError(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setSuggestionError(null);
+      const { data, error } = await supabase.rpc('search_cbos', { search_term: text });
+      if (error) {
+        setSuggestionError('Falha ao buscar CBO.');
+        setProfessionSuggestions([]);
+        setShowSuggestions(false);
+        return;
+      }
+      const list = (data || []).slice(0, 10).map((d: any) => ({ code: d.code, occupation: d.occupation }));
+      setProfessionSuggestions(list);
+      setShowSuggestions(list.length > 0);
+    }, 300);
+
+    setSearchTimer(Number(timer));
+  };
+
+  const selectProfession = (item: any) => {
+    handleInputChange('profissao', item.occupation);
+    handleInputChange('cbo', item.code);
+    setProfessionSuggestions([]);
+    setShowSuggestions(false);
+  };
 
   useEffect(() => {
     if (initialId) {
@@ -65,8 +106,11 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
 
     if (!formData.sus.trim()) {
       newErrors.sus = 'Número SUS é obrigatório';
-    } else if (formData.sus.length > 15) {
-      newErrors.sus = 'Número SUS deve ter no máximo 15 caracteres';
+    } else {
+      const onlyDigits = formData.sus.replace(/\D/g, '');
+      if (!(onlyDigits.length === 11 || onlyDigits.length === 15)) {
+        newErrors.sus = 'Número SUS deve ter 11 (CPF) ou 15 (CNS) dígitos';
+      }
     }
 
     if (!formData.nome.trim()) {
@@ -75,17 +119,25 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
       newErrors.nome = 'Nome deve ter no máximo 255 caracteres';
     }
 
+    if (!formData.establishment_id) {
+      newErrors.establishment_id = 'Estabelecimento é obrigatório';
+    }
+
     if (!formData.profissao.trim()) {
       newErrors.profissao = 'Profissão é obrigatória';
     } else if (formData.profissao.length > 100) {
       newErrors.profissao = 'Profissão deve ter no máximo 100 caracteres';
     }
 
-    if (formData.cbo && formData.cbo.length > 10) {
+    if (!formData.cbo.trim()) {
+      newErrors.cbo = 'CBO é obrigatório';
+    } else if (formData.cbo.length > 10) {
       newErrors.cbo = 'CBO deve ter no máximo 10 caracteres';
     }
 
-    if (formData.telefone && formData.telefone.length > 20) {
+    if (!formData.telefone.trim()) {
+      newErrors.telefone = 'Telefone é obrigatório';
+    } else if (formData.telefone.length > 20) {
       newErrors.telefone = 'Telefone deve ter no máximo 20 caracteres';
     }
 
@@ -97,12 +149,26 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
       newErrors.email = 'Email inválido';
     }
 
+    if (!formData.access_password || formData.access_password.length < 4) {
+      newErrors.access_password = 'Senha de acesso é obrigatória (mín. 4 caracteres)';
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    let v = value;
+    if (field === 'nome' || field === 'endereco') {
+      v = formatTitleCase(v);
+    }
+    if (field === 'email') {
+      v = v.toLowerCase();
+    }
+    if (field === 'sus') {
+      v = value.replace(/\D/g, '').slice(0, 15);
+    }
+    setFormData(prev => ({ ...prev, [field]: v }));
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: '' }));
     }
@@ -141,7 +207,8 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
             profissao: formatTitleCase(formData.profissao),
             endereco: formatTitleCase(formData.endereco),
             email: formData.email?.toLowerCase(),
-            establishment_id: formData.establishment_id || null
+            establishment_id: formData.establishment_id || null,
+            access_password: formData.access_password || null
           }]);
 
         if (error) throw error;
@@ -199,9 +266,9 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
 
         <form onSubmit={handleSubmit} className="bg-white dark:bg-surface-dark rounded-xl shadow-md p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
+            <div className="relative">
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                Número SUS <span className="text-red-500">*</span>
+              Profissão <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -212,6 +279,8 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
                   errors.sus ? 'border-red-500' : 'border-slate-300 dark:border-slate-600'
                 }`}
                 maxLength={15}
+                inputMode="numeric"
+                pattern="[0-9]*"
               />
               {errors.sus && <p className="text-red-500 text-sm mt-1">{errors.sus}</p>}
             </div>
@@ -234,9 +303,9 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                Estabelecimento de Vínculo
-              </label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              Estabelecimento de Vínculo <span className="text-red-500">*</span>
+            </label>
               <select
                 value={formData.establishment_id}
                 onChange={(e) => handleInputChange('establishment_id', e.target.value)}
@@ -251,33 +320,57 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
               </select>
             </div>
 
-          <div>
+          <div className="relative">
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
               Profissão <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={formData.profissao}
-              onChange={(e) => handleInputChange('profissao', e.target.value)}
+              onChange={(e) => handleSearchProfession(e.target.value)}
+              onFocus={() => { if (professionSuggestions.length > 0) setShowSuggestions(true); }}
+              onBlur={() => { setTimeout(() => setShowSuggestions(false), 200); }}
               placeholder="Ex: Médico, Enfermeiro, Dentista..."
               className={`w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent ${
                 errors.profissao ? 'border-red-500' : 'border-slate-300 dark:border-slate-600'
               }`}
               maxLength={100}
+              autoComplete="off"
             />
+            {showSuggestions && professionSuggestions.length > 0 && (
+              <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                {professionSuggestions.map((item, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => selectProfession(item)}
+                    className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-sm text-slate-700 dark:text-slate-200"
+                  >
+                    <span className="font-bold">{item.code}</span> - {item.occupation}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!showSuggestions && formData.profissao && !suggestionError && (
+              <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg p-3 text-sm text-slate-500 dark:text-slate-300">Nenhum resultado</div>
+            )}
+            {suggestionError && (
+              <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-red-300 dark:border-red-700 rounded-lg shadow-lg p-3 text-sm text-red-600 dark:text-red-400">{suggestionError}</div>
+            )}
             {errors.profissao && <p className="text-red-500 text-sm mt-1">{errors.profissao}</p>}
           </div>
 
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-              CBO
+              CBO <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={formData.cbo}
               onChange={(e) => handleInputChange('cbo', e.target.value)}
               placeholder="Ex: 2231-10"
-              className={`w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent ${
+              readOnly
+              className={`w-full px-3 py-2 border rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 cursor-not-allowed focus:ring-2 focus:ring-primary focus:border-transparent ${
                 errors.cbo ? 'border-red-500' : 'border-slate-300 dark:border-slate-600'
               }`}
               maxLength={10}
@@ -287,7 +380,7 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
 
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                Telefone
+                Telefone <span className="text-red-500">*</span>
               </label>
               <input
                 type="tel"
@@ -319,9 +412,29 @@ const ProfissionalForm: React.FC<ProfissionalFormProps> = ({ onCancel, onSave, i
               {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
             </div>
 
+            <div className="md:col-span-2 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
+              <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+                Senha de Acesso (Produção Individual) <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={formData.access_password || ''}
+                onChange={(e) => handleInputChange('access_password', e.target.value)}
+                placeholder="Defina uma senha para o profissional acessar a tela de produção"
+                className={`w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary focus:border-transparent ${
+                  errors.access_password ? 'border-red-500' : 'border-slate-300 dark:border-slate-600'
+                }`}
+              />
+              <p className="text-xs text-slate-500 mt-2">
+                <span className="material-symbols-outlined text-[14px] align-middle mr-1">info</span>
+                Esta senha será solicitada exclusivamente quando o profissional tentar acessar a tela de "Produção BPA-C".
+              </p>
+              {errors.access_password && <p className="text-red-500 text-sm mt-1">{errors.access_password}</p>}
+            </div>
+
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                Endereço Completo
+                Endereço Completo <span className="text-red-500">*</span>
               </label>
               <textarea
                 value={formData.endereco}

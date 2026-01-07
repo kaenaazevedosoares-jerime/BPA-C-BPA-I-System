@@ -33,6 +33,27 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
   const [editingBpaId, setEditingBpaId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
+  // Filter states
+  const [filterTerm, setFilterTerm] = useState('');
+  const [filterMonth, setFilterMonth] = useState('');
+
+  const uniqueMonths = useMemo(() => {
+    const months = new Set(bpaList.map(item => item.header.reference_month));
+    return Array.from(months).sort();
+  }, [bpaList]);
+
+  const filteredList = useMemo(() => {
+    return bpaList.filter(item => {
+      const matchesTerm = filterTerm === '' || 
+        item.header.cnes.toLowerCase().includes(filterTerm.toLowerCase()) ||
+        (item.establishmentName && item.establishmentName.toLowerCase().includes(filterTerm.toLowerCase()));
+      
+      const matchesMonth = filterMonth === '' || item.header.reference_month === filterMonth;
+
+      return matchesTerm && matchesMonth;
+    });
+  }, [bpaList, filterTerm, filterMonth]);
+
   const addEntry = () => {
     setEntries([...entries, { id: Math.random().toString(36).substr(2, 9), procedure: '', cbo: '', quantity: 1 }]);
   };
@@ -379,8 +400,51 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
       </div>
       )}
 
-      <div className="space-y-3">
-        <h3 className="text-sm font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">BPA-C Enviados</h3>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">BPA-C Enviados</h3>
+          <span className="text-xs font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-lg">
+            {filteredList.length} registros encontrados
+          </span>
+        </div>
+
+        {/* Smart Filter */}
+        <div className="bg-white dark:bg-surface-dark p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row gap-4 animate-fade-in">
+          <div className="flex-1 relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-slate-400 text-[20px]">search</span>
+            <input 
+              type="text"
+              placeholder="Filtrar por CNES ou Nome do Estabelecimento..."
+              value={filterTerm}
+              onChange={(e) => setFilterTerm(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-background-dark/50 border border-slate-200 dark:border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:border-primary focus:ring-1 focus:ring-primary transition-all text-slate-700 dark:text-slate-200"
+            />
+          </div>
+          <div className="w-full md:w-48 relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-slate-400 text-[20px]">calendar_month</span>
+            <select 
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-background-dark/50 border border-slate-200 dark:border-slate-700 rounded-xl py-2.5 pl-10 pr-8 text-sm focus:border-primary focus:ring-1 focus:ring-primary transition-all text-slate-700 dark:text-slate-200 appearance-none"
+            >
+              <option value="">Todos os meses</option>
+              {uniqueMonths.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-slate-400 text-[20px] pointer-events-none">expand_more</span>
+          </div>
+          {(filterTerm || filterMonth) && (
+            <button 
+              onClick={() => { setFilterTerm(''); setFilterMonth(''); }}
+              className="px-4 py-2.5 text-slate-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors text-sm font-bold flex items-center gap-2 justify-center"
+            >
+              <span className="material-symbols-outlined text-[18px]">filter_alt_off</span>
+              Limpar
+            </button>
+          )}
+        </div>
+
         {listLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {[...Array(6)].map((_, i) => (
@@ -389,12 +453,18 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4">
-            {bpaList.map(({ header, items, establishmentName }) => (
-              <BpaConsolidatedCard
-                key={header.id}
-                header={header}
-                items={items}
-                establishmentName={establishmentName}
+            {filteredList.length === 0 ? (
+              <div className="text-center py-12 bg-slate-50 dark:bg-surface-dark/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                <span className="material-symbols-outlined text-4xl text-slate-300 mb-2">filter_list_off</span>
+                <p className="text-slate-500 font-medium">Nenhum registro encontrado com os filtros atuais.</p>
+              </div>
+            ) : (
+              filteredList.map(({ header, items, establishmentName }) => (
+                <BpaConsolidatedCard
+                  key={header.id}
+                  header={header}
+                  items={items}
+                  establishmentName={establishmentName}
                 onEdit={async (id) => {
                   const { data: h } = await supabase.from('bpa_consolidated').select('*').eq('id', id).single();
                   const { data: it } = await supabase.from('bpa_consolidated_items').select('*').eq('bpa_id', id);
@@ -426,6 +496,7 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
                     });
                     setProcedureNames(procNamesObj);
                     setCboNames(cboNamesObj);
+                    setShowForm(true);
                   }
                 }}
                 onDelete={async (id) => {
@@ -473,10 +544,11 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
                   });
                   setProcedureNames(procNamesObj);
                   setCboNames(cboNamesObj);
+                  setShowForm(true);
                   await fetchBpaList();
                 }}
               />
-            ))}
+            )))}
           </div>
         )}
       </div>

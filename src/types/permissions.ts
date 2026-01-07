@@ -9,6 +9,7 @@ export type PermissionKey =
   | 'view_procedure_catalog'
   | 'view_cbo_catalog'
   | 'view_street_types'
+  | 'access_production_bpac'
   
   // Actions / Buttons
   | 'create_patient'
@@ -22,6 +23,7 @@ export type PermissionKey =
 export const ALL_PERMISSIONS: { key: PermissionKey; label: string; group: string }[] = [
   { key: 'view_bpai', label: 'Ver BPA-I Digital', group: 'Menu Lateral' },
   { key: 'view_bpac', label: 'Ver BPA-C Consolidado', group: 'Menu Lateral' },
+  { key: 'access_production_bpac', label: 'Produção BPA-C', group: 'Menu Lateral' },
   { key: 'view_patients', label: 'Ver Pacientes', group: 'Menu Lateral' },
   { key: 'view_profissionais', label: 'Ver Profissionais', group: 'Menu Lateral' },
   { key: 'view_establishment', label: 'Ver Estabelecimento', group: 'Menu Lateral' },

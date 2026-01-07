@@ -123,9 +123,12 @@ CREATE TABLE IF NOT EXISTS public.profissionais (
   endereco TEXT,
   telefone VARCHAR(20),
   email VARCHAR(255),
+  access_password VARCHAR(255),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+COMMENT ON COLUMN public.profissionais.access_password IS 'Senha de acesso para lançamento de produção individual';
+
 CREATE INDEX IF NOT EXISTS idx_profissionais_nome ON public.profissionais(nome);
 CREATE INDEX IF NOT EXISTS idx_profissionais_sus ON public.profissionais(sus);
 
@@ -276,6 +279,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Busca CBOs (ocupações) ignorando acentos e permitindo busca por código
+CREATE OR REPLACE FUNCTION search_cbos(search_term TEXT)
+RETURNS SETOF cbos AS $$
+BEGIN
+  RETURN QUERY
+  SELECT *
+  FROM cbos
+  WHERE unaccent(occupation) ILIKE unaccent('%' || search_term || '%')
+     OR code ILIKE '%' || search_term || '%';
+END;
+$$ LANGUAGE plpgsql;
+
 -- =================================================================================================
 -- 4. POLÍTICAS DE SEGURANÇA (RLS)
 -- =================================================================================================
@@ -342,6 +357,25 @@ BEGIN
     DROP POLICY IF EXISTS "Escrita de bairros" ON public.neighborhoods_catalog;
     CREATE POLICY "Escrita de bairros" ON public.neighborhoods_catalog FOR INSERT WITH CHECK (auth.role() = 'authenticated');
     -- (Repetir padrão para outros catálogos se necessário, aqui simplificado para bairros como exemplo principal)
+END $$;
+
+-- Políticas Públicas (acesso sem login) para recursos necessários ao auto-cadastro
+DO $$
+BEGIN
+    -- Estabelecimentos: leitura pública para listar opções no formulário
+    DROP POLICY IF EXISTS "Leitura pública de estabelecimentos" ON public.establishments;
+    CREATE POLICY "Leitura pública de estabelecimentos" ON public.establishments
+    FOR SELECT TO anon USING (true);
+
+    -- CBOs: leitura pública para autocomplete de profissão
+    DROP POLICY IF EXISTS "Leitura pública de CBOs" ON public.cbos;
+    CREATE POLICY "Leitura pública de CBOs" ON public.cbos
+    FOR SELECT TO anon USING (true);
+
+    -- Profissionais: permitir cadastro público (insert sem login)
+    DROP POLICY IF EXISTS "Cadastro público de profissionais" ON public.profissionais;
+    CREATE POLICY "Cadastro público de profissionais" ON public.profissionais
+    FOR INSERT TO anon WITH CHECK (true);
 END $$;
 
 -- =================================================================================================

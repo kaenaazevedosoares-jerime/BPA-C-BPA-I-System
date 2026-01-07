@@ -7,7 +7,7 @@ interface SettingsProps {
   currentUser: UserProfile | null;
 }
 
-type Tab = 'permissions' | 'templates';
+type Tab = 'permissions' | 'templates' | 'links';
 
 const Settings: React.FC<SettingsProps> = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState<Tab>('permissions');
@@ -219,13 +219,20 @@ const Settings: React.FC<SettingsProps> = ({ currentUser }) => {
           <span className="material-symbols-outlined text-lg">chat</span>
           Modelos de Mensagem
         </button>
+        <button
+          onClick={() => setActiveTab('links')}
+          className={`px-4 py-2 text-sm font-bold rounded-t-lg transition-colors flex items-center gap-2 ${activeTab === 'links' ? 'bg-white dark:bg-surface-dark text-primary border-b-2 border-primary' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
+        >
+          <span className="material-symbols-outlined text-lg">link</span>
+          Links Públicos
+        </button>
       </div>
 
       {/* Content */}
       <div className="bg-white dark:bg-surface-dark rounded-b-3xl rounded-tr-3xl p-6 shadow-sm border border-slate-200 dark:border-slate-800 min-h-[500px]">
         
         {/* TAB: PERMISSIONS */}
-        {activeTab === 'permissions' && (
+        {activeTab === 'permissions' && currentUser?.role === 'admin' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* User List */}
             <div className="lg:col-span-1 border-r border-slate-100 dark:border-slate-800 pr-6 h-[calc(100vh-300px)] overflow-y-auto">
@@ -389,6 +396,44 @@ const Settings: React.FC<SettingsProps> = ({ currentUser }) => {
                       Salvar Modelo
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: LINKS */}
+        {activeTab === 'links' && (
+          <div className="max-w-2xl mx-auto animate-fade-in">
+            <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-xl p-6">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2">
+                <span className="material-symbols-outlined text-primary">public</span>
+                Cadastro Público de Profissionais
+              </h3>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+                Compartilhe este link com profissionais para que eles possam realizar o próprio cadastro no sistema. 
+                Os cadastros precisarão ser revisados por um administrador.
+              </p>
+              
+              <div className="relative">
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Link de Acesso</label>
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    readOnly
+                    value={`${window.location.origin}?view=public-professional-reg`}
+                    className="flex-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-4 py-3 text-sm text-slate-600 dark:text-slate-300 outline-none select-all"
+                  />
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(`${window.location.origin}?view=public-professional-reg`);
+                      alert('Link copiado para a área de transferência!');
+                    }}
+                    className="bg-primary hover:bg-primary-dark text-white px-6 rounded-lg font-bold transition-colors flex items-center gap-2 shadow-md hover:shadow-lg"
+                  >
+                    <span className="material-symbols-outlined text-sm">content_copy</span>
+                    Copiar
+                  </button>
                 </div>
               </div>
             </div>

@@ -9,11 +9,13 @@ import PatientRegistration from './pages/PatientRegistration';
 import ProcedureForm from './pages/ProcedureForm';
 import ProcedureList from './pages/ProcedureList';
 import BpaConsolidatedForm from './pages/BpaConsolidatedForm';
+import BpaProductionForm from './pages/BpaProductionForm';
 import EstablishmentRegistration from './pages/EstablishmentRegistration';
 import ProcedureCatalog from './pages/ProcedureCatalog';
 import CboRegistration from './pages/CboRegistration';
 import ProfissionaisList from './pages/ProfissionaisList';
 import ProfissionalForm from './pages/ProfissionalForm';
+import PublicProfissionalRegistration from './pages/PublicProfissionalRegistration';
 import StreetTypeCatalog from './pages/StreetTypeCatalog';
 import Settings from './pages/Settings';
 import { supabase } from './lib/supabase';
@@ -77,19 +79,31 @@ const App: React.FC = () => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session) fetchProfile(session.user.id);
-      if (!session && currentView !== 'register') {
+
+      const params = new URLSearchParams(window.location.search);
+      const viewParam = params.get('view');
+
+      if (viewParam === 'public-professional-reg') {
+        setCurrentView('public-professional-reg');
+      } else if (!session && currentView !== 'register') {
         setCurrentView('login');
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      const params = new URLSearchParams(window.location.search);
+      const viewParam = params.get('view');
       if (session) {
         fetchProfile(session.user.id);
         if (currentView === 'login') setCurrentView('dashboard');
       } else {
         setUserProfile(null);
-        setCurrentView('login');
+        if (viewParam === 'public-professional-reg') {
+          setCurrentView('public-professional-reg');
+        } else {
+          setCurrentView('login');
+        }
       }
     });
 
@@ -135,7 +149,7 @@ const App: React.FC = () => {
   };
 
   const renderView = () => {
-    if (!session && currentView !== 'register' && currentView !== 'login') {
+    if (!session && currentView !== 'register' && currentView !== 'login' && currentView !== 'public-professional-reg') {
       return <Login onLogin={() => navigateTo('dashboard')} onGoToRegister={() => navigateTo('register')} />;
     }
 
@@ -161,6 +175,8 @@ const App: React.FC = () => {
           return <Dashboard onNewBpai={() => navigateTo('procedure-form')} onNewBpac={() => navigateTo('bpa-c-form')} userProfile={userProfile} />;
         }
         return <BpaConsolidatedForm onCancel={() => navigateTo('dashboard')} onSave={() => navigateTo('dashboard')} />;
+      case 'bpa-production':
+        return <BpaProductionForm onCancel={() => navigateTo('dashboard')} onSave={() => navigateTo('dashboard')} />;
       case 'procedure-list':
         return <ProcedureList onAddNew={() => navigateTo('procedure-form')} onEdit={handleEditProcedure} />;
       case 'establishment-reg':
@@ -176,13 +192,18 @@ const App: React.FC = () => {
       case 'street-type-catalog':
         return <StreetTypeCatalog onCancel={() => navigateTo('dashboard')} />;
       case 'settings':
+        if (userProfile?.role !== 'admin') {
+          return <Dashboard onNewBpai={() => navigateTo('procedure-form')} onNewBpac={() => navigateTo('bpa-c-form')} userProfile={userProfile} />;
+        }
         return <Settings currentUser={userProfile} />;
+      case 'public-professional-reg':
+        return <PublicProfissionalRegistration />;
       default:
         return <Dashboard onNewBpai={() => navigateTo('procedure-form')} onNewBpac={() => navigateTo('bpa-c-form')} userProfile={userProfile} />;
     }
   };
 
-  if (currentView === 'login' || currentView === 'register') {
+  if (currentView === 'login' || currentView === 'register' || currentView === 'public-professional-reg') {
     return (
       <div className="min-h-screen">
         <button 

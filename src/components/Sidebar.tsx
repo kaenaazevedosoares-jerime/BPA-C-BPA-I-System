@@ -28,6 +28,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, currentView, onNavig
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
     { id: 'procedure-list', label: 'BPA-I Digital', icon: 'assignment_ind', permission: 'view_bpai' },
     { id: 'bpa-c-form', label: 'BPA-C Consolidado', icon: 'assignment', permission: 'view_bpac' },
+    { id: 'bpa-production', label: 'Produção BPA-C', icon: 'fact_check', permission: 'access_production_bpac' },
     { id: 'patient-reg', label: 'Pacientes', icon: 'person_add', permission: 'view_patients' },
     { id: 'profissionais', label: 'Profissional', icon: 'stethoscope', permission: 'view_profissionais' },
     { id: 'procedure-catalog', label: 'Catálogo Proced.', icon: 'list_alt', permission: 'view_procedure_catalog' },

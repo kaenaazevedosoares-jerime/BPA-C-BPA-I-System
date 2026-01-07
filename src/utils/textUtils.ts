@@ -2,7 +2,10 @@ export const formatTitleCase = (text: string): string => {
   if (!text) return text;
   
   // Lista de conectores que devem permanecer em minúsculo (exceto no início da frase)
-  const exceptions = ['da', 'do', 'de', 'e', 'das', 'dos', 'com', 'por', 'para', 'na', 'no', 'nas', 'nos', 'em'];
+  const exceptions = [
+    'da','do','de','e','das','dos','com','por','para','na','no','nas','nos','em',
+    'a','as','o','os','ao','aos','à','às'
+  ];
   
   // Divide o texto por espaços
   const words = text.toLowerCase().split(' ');

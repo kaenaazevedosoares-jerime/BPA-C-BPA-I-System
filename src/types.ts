@@ -17,7 +17,9 @@ export type View =
   | 'profissionais' 
   | 'profissionais-form'
   | 'street-type-catalog'
-  | 'settings';
+  | 'bpa-production'
+  | 'settings'
+  | 'public-professional-reg';
 
 export interface UserProfile {
   id: string;
