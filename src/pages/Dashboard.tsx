@@ -1,7 +1,10 @@
 
-import React from 'react';
-import { ProductionItem, UserProfile } from '../types';
+import React, { useState } from 'react';
+import type { UserProfile } from '../types';
 import { usePermissions } from '../hooks/usePermissions';
+import { useDashboardStats } from '../hooks/useDashboardStats';
+import ErrorBoundary from '../components/ErrorBoundary';
+import { SimpleBarChart } from '../components/SimpleCharts';
 
 interface DashboardProps {
   onNewBpai: () => void;
@@ -9,207 +12,325 @@ interface DashboardProps {
   userProfile: UserProfile | null;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ onNewBpai, onNewBpac, userProfile }) => {
+const DashboardContent: React.FC<DashboardProps> = ({ onNewBpai, onNewBpac, userProfile }) => {
   const { hasPermission } = usePermissions(userProfile);
+  
+  // State for filters
+  const currentYear = new Date().getFullYear().toString();
+  const currentMonth = (new Date().getMonth() + 1).toString();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+  const [filterType, setFilterType] = useState<'month' | 'year'>('month');
+  const [activeTab, setActiveTab] = useState<'BPA-I' | 'BPA-C'>('BPA-I');
 
-  const recentProduction: ProductionItem[] = [
-    {
-      id: '1',
-      patientName: 'Maria Oliveira',
-      procedure: 'Prótese Total Mandibular',
-      status: 'Em Análise',
-      timeLabel: 'Solicitado há 2h',
-      icon: 'face_3',
-      colorClass: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-900/50'
-    },
-    {
-      id: '2',
-      patientName: 'João Santos',
-      procedure: 'Ponte Móvel Superior',
-      status: 'Concluído',
-      timeLabel: 'Finalizado hoje, 14:30',
-      icon: 'check_circle',
-      colorClass: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 border border-green-200 dark:border-green-900/50'
-    },
-    {
-      id: '3',
-      patientName: 'Ana Paula Lima',
-      procedure: 'Prótese Parcial Removível',
-      status: 'Em Produção',
-      timeLabel: 'Iniciado ontem',
-      icon: 'precision_manufacturing',
-      colorClass: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400 border border-blue-200 dark:border-blue-900/50'
-    }
+  // Fetch real data
+  const stats = useDashboardStats(selectedMonth, selectedYear, filterType);
+
+  // Years option (current year + previous 4)
+  const years = Array.from({ length: 5 }, (_, i) => (parseInt(currentYear) - i).toString());
+  
+  const months = [
+    { value: '1', label: 'Janeiro' },
+    { value: '2', label: 'Fevereiro' },
+    { value: '3', label: 'Março' },
+    { value: '4', label: 'Abril' },
+    { value: '5', label: 'Maio' },
+    { value: '6', label: 'Junho' },
+    { value: '7', label: 'Julho' },
+    { value: '8', label: 'Agosto' },
+    { value: '9', label: 'Setembro' },
+    { value: '10', label: 'Outubro' },
+    { value: '11', label: 'Novembro' },
+    { value: '12', label: 'Dezembro' },
   ];
+
+  if (stats.error) {
+    return (
+        <div className="p-8 text-center">
+            <div className="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-4 rounded-xl inline-block">
+                <span className="material-symbols-outlined text-3xl mb-2">error</span>
+                <p className="font-bold">Erro ao carregar dados</p>
+                <p className="text-sm opacity-80">{stats.error}</p>
+                <p className="text-xs mt-2 opacity-60">Verifique se as views SQL foram criadas no banco de dados.</p>
+            </div>
+        </div>
+    );
+  }
+
+  // Verificar se há dados antes de renderizar gráficos
+  const hasBpaiData = stats.bpaiProcedures.length > 0 || stats.bpaiProfessionals.length > 0;
+  const hasBpacData = stats.bpacUnits.length > 0 || stats.bpacProcedures.length > 0;
+
+  if (stats.loading && !stats.bpaiStatus) {
+      return (
+        <div className="flex items-center justify-center h-full min-h-[400px]">
+           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+        </div>
+      );
+  }
+
+  // Colors for charts
+  const COLORS = ['#137FEC', '#7C3AED', '#10B981', '#F59E0B', '#EF4444', '#6366F1'];
 
   return (
     <div className="p-4 space-y-8 animate-fade-in max-w-7xl mx-auto w-full">
-      {/* Metrics */}
-      <section>
-        <div className="flex justify-between items-end mb-4 px-1">
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white tracking-tight">Métricas Mensais</h2>
-          <button className="text-sm font-semibold text-primary hover:underline">Ver relatório</button>
+      
+      {/* Header & Filters */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Dashboard Geral</h1>
+           <p className="text-sm text-slate-500 dark:text-slate-400">Visão geral da produção e desempenho</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <MetricCard 
-            label="Próteses Totais" 
-            value="154" 
-            trend="+12%" 
-            icon="dentistry" 
-            progress={75} 
-            color="primary" 
-          />
-          <MetricCard 
-            label="BPA-I Pendentes" 
-            value="32" 
-            trend="Atenção" 
-            icon="pending_actions" 
-            progress={45} 
-            color="accent-purple" 
-            statusType="warning"
-          />
-          <MetricCard 
-            label="BPA-C Enviados" 
-            value="12" 
-            trend="90%" 
-            icon="send" 
-            progress={90} 
-            color="accent-teal" 
-          />
-        </div>
-      </section>
-
-      {/* Quick Access */}
-      <section>
-        <h2 className="text-xl font-bold text-slate-800 dark:text-white tracking-tight mb-4 px-1">Acesso Rápido</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {(userProfile?.role === 'admin' || hasPermission('create_bpai')) && (
-            <QuickCard 
-              title="Novo BPA-I" 
-              subtitle="Individualizado" 
-              icon="person_add" 
-              image="https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&q=80&w=800"
-              onClick={onNewBpai}
-            />
-          )}
-          {(userProfile?.role === 'admin' || hasPermission('create_bpac')) && (
-            <QuickCard 
-              title="Novo BPA-C" 
-              subtitle="Consolidado" 
-              icon="bar_chart" 
-              // Changed image to avoid CORB/ORB blocking (using a simpler gradient fallback if needed, or a different URL)
-              // Trying a different Unsplash URL that is known to work or removing the image to test.
-              // For now, let's just keep the image but note that in production, assets should be local.
-              image="https://images.unsplash.com/photo-1551288049-bbbda536ad0a?auto=format&fit=crop&q=80&w=800"
-              onClick={onNewBpac}
-            />
-          )}
-        </div>
-      </section>
-
-      {/* Production List */}
-      <section>
-        <div className="flex justify-between items-center mb-4 px-1">
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white tracking-tight">Produção Recente</h2>
-          <button className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
-            <span className="material-symbols-outlined text-[20px]">filter_list</span>
-          </button>
-        </div>
-        <div className="bg-surface-light dark:bg-surface-dark rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
-          {recentProduction.map(item => (
-            <div 
-              key={item.id} 
-              className="p-5 flex items-center gap-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
-            >
-              <div className="w-12 h-12 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-primary shrink-0 border border-slate-100 dark:border-slate-700 shadow-sm">
-                <span className={`material-symbols-outlined ${item.status === 'Concluído' ? 'text-green-500' : item.status === 'Em Produção' ? 'text-primary' : 'text-slate-400'}`}>
-                  {item.icon === 'check_circle' ? 'check_circle' : item.icon === 'face_3' ? 'face' : 'precision_manufacturing'}
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-start">
-                  <h4 className="font-bold text-slate-900 dark:text-white truncate text-base">{item.patientName}</h4>
-                  <span className={`text-[9px] font-extrabold uppercase tracking-widest px-2 py-1 rounded-md ${item.colorClass}`}>
-                    {item.status}
-                  </span>
-                </div>
-                <p className="text-sm text-slate-500 dark:text-slate-400 truncate mt-0.5">{item.procedure}</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1 font-medium">{item.timeLabel}</p>
-              </div>
+        
+        <div className="flex flex-wrap items-center gap-3">
+            {/* Context Switcher */}
+            <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
+                <button 
+                    onClick={() => setActiveTab('BPA-I')}
+                    className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeTab === 'BPA-I' ? 'bg-white dark:bg-slate-700 shadow-sm text-primary' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                >
+                    BPA-I Digital
+                </button>
+                <button 
+                    onClick={() => setActiveTab('BPA-C')}
+                    className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${activeTab === 'BPA-C' ? 'bg-white dark:bg-slate-700 shadow-sm text-accent-purple' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
+                >
+                    BPA-C Consolidado
+                </button>
             </div>
-          ))}
-        </div>
-      </section>
 
-      {/* Floating Action Button */}
-      {(userProfile?.role === 'admin' || hasPermission('create_bpai')) && (
+            {/* Date Filters */}
+            <div className="flex gap-2 bg-white dark:bg-slate-800 p-1 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700">
+            <select 
+                value={filterType} 
+                onChange={(e) => setFilterType(e.target.value as 'month' | 'year')}
+                className="bg-transparent text-sm font-medium text-slate-700 dark:text-slate-300 border-none focus:ring-0 cursor-pointer py-1 pl-2 pr-2 outline-none"
+            >
+                <option value="month">Mensal</option>
+                <option value="year">Anual</option>
+            </select>
+            
+            {filterType === 'month' && (
+                <>
+                <div className="w-px bg-slate-200 dark:bg-slate-700 my-1"></div>
+                <select 
+                    value={selectedMonth} 
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="bg-transparent text-sm font-medium text-slate-700 dark:text-slate-300 border-none focus:ring-0 cursor-pointer py-1 pl-2 pr-2 outline-none"
+                >
+                    {months.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+                </>
+            )}
+            
+            <div className="w-px bg-slate-200 dark:bg-slate-700 my-1"></div>
+            <select 
+                value={selectedYear} 
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="bg-transparent text-sm font-medium text-slate-700 dark:text-slate-300 border-none focus:ring-0 cursor-pointer py-1 pl-2 pr-8 outline-none"
+            >
+                {years.map(y => <option key={y} value={y}>{y}</option>)}
+            </select>
+            </div>
+        </div>
+      </div>
+
+      {activeTab === 'BPA-I' && (
+        <div className="space-y-6 animate-fade-in">
+            {/* Status Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <StatusCard 
+                    label="Finalizados"  
+                    value={stats.bpaiStatus?.finalizados || 0} 
+                    icon="check_circle" 
+                    color="text-green-600" 
+                    bg="bg-green-50 dark:bg-green-900/20"
+                    borderColor="border-green-200 dark:border-green-800"
+                />
+                <StatusCard 
+                    label="Pendentes" 
+                    value={stats.bpaiStatus?.pendentes || 0} 
+                    icon="pending" 
+                    color="text-yellow-600" 
+                    bg="bg-yellow-50 dark:bg-yellow-900/20"
+                    borderColor="border-yellow-200 dark:border-yellow-800"
+                />
+                <StatusCard 
+                    label="Consulta/Molde" 
+                    value={stats.bpaiStatus?.consulta_molde || 0} 
+                    icon="dentistry" 
+                    color="text-blue-600" 
+                    bg="bg-blue-50 dark:bg-blue-900/20"
+                    borderColor="border-blue-200 dark:border-blue-800"
+                />
+                <StatusCard 
+                    label="Agendado Entrega" 
+                    value={stats.bpaiStatus?.agendado_entrega || 0} 
+                    icon="event_available" 
+                    color="text-purple-600" 
+                    bg="bg-purple-50 dark:bg-purple-900/20"
+                    borderColor="border-purple-200 dark:border-purple-800"
+                />
+                <StatusCard 
+                    label="Cancelados" 
+                    value={stats.bpaiStatus?.cancelados || 0} 
+                    icon="cancel" 
+                    color="text-red-600" 
+                    bg="bg-red-50 dark:bg-red-900/20"
+                    borderColor="border-red-200 dark:border-red-800"
+                />
+                <StatusCard 
+                    label="Processado SIA" 
+                    value={stats.bpaiStatus?.processado_sia || 0} 
+                    icon="verified" 
+                    color="text-teal-600" 
+                    bg="bg-teal-50 dark:bg-teal-900/20"
+                    borderColor="border-teal-200 dark:border-teal-800"
+                />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Procedures Chart (Vertical Bars - Hexagonal Style) */}
+                <div className="bg-surface-light dark:bg-surface-dark p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 min-h-[400px] overflow-x-auto">
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Procedimentos Realizados</h3>
+                    {stats.bpaiProcedures.length > 0 ? (
+                        <div style={{ minWidth: '500px' }}>
+                            <SimpleBarChart 
+                                data={stats.bpaiProcedures} 
+                                dataKey="total" 
+                                labelKey="procedure_name" 
+                                color="#137FEC" 
+                            />
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center h-[300px] text-slate-400">
+                            <span className="material-symbols-outlined text-4xl mb-2">bar_chart</span>
+                            <p>Nenhum procedimento registrado.</p>
+                        </div>
+                    )}
+                </div>
+
+                {/* Professionals Chart (Comparison) */}
+                <div className="bg-surface-light dark:bg-surface-dark p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 min-h-[400px] overflow-x-auto">
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Produção por Profissional</h3>
+                    {stats.bpaiProfessionals.length > 0 ? (
+                        <div style={{ minWidth: '500px' }}>
+                             <SimpleBarChart 
+                                data={stats.bpaiProfessionals} 
+                                dataKey="total" 
+                                labelKey="professional_name" 
+                                color="#7C3AED" 
+                                layout="vertical"
+                            />
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center h-[300px] text-slate-400">
+                            <span className="material-symbols-outlined text-4xl mb-2">person_off</span>
+                            <p>Nenhum dado de profissional.</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+      )}
+
+      {activeTab === 'BPA-C' && (
+        <div className="space-y-6 animate-fade-in">
+            {/* BPA-C Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* By Unit */}
+                <div className="bg-surface-light dark:bg-surface-dark p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-x-auto">
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Enviados por Unidade</h3>
+                    <div style={{ minWidth: '500px' }}>
+                        <SimpleBarChart 
+                            data={stats.bpacUnits} 
+                            dataKey="total" 
+                            labelKey="unit_name" 
+                            color="#137FEC" 
+                        />
+                    </div>
+                </div>
+
+                {/* By Professional (Horizontal) */}
+                <div className="bg-surface-light dark:bg-surface-dark p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-x-auto">
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Produção por Profissional (BPA-C)</h3>
+                    {stats.bpacProfessionals.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-[300px] text-slate-400">
+                            <span className="material-symbols-outlined text-4xl mb-2">person_off</span>
+                            <p>Nenhum dado vinculado a profissionais neste período.</p>
+                        </div>
+                    ) : (
+                        <div style={{ minWidth: '500px' }}>
+                            <SimpleBarChart 
+                                data={stats.bpacProfessionals} 
+                                dataKey="total" 
+                                labelKey="professional_name" 
+                                color="#7C3AED" 
+                                layout="vertical"
+                            />
+                        </div>
+                    )}
+                </div>
+
+                {/* By Procedure (Horizontal) */}
+                <div className="bg-surface-light dark:bg-surface-dark p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 lg:col-span-2 overflow-x-auto">
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6">Quantitativo por Procedimento (BPA-C)</h3>
+                    <div style={{ minWidth: '600px' }}>
+                        <SimpleBarChart 
+                            data={stats.bpacProcedures} 
+                            dataKey="total" 
+                            labelKey="procedure_name" 
+                            color="#10B981" 
+                            layout="vertical"
+                        />
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* Floating Action Button (Only for BPA-I tab to keep context clean, or both if preferred) */}
+      {(userProfile?.role === 'admin' || hasPermission('create_bpai')) && activeTab === 'BPA-I' && (
         <button 
           onClick={onNewBpai}
           className="fixed bottom-8 right-8 z-40 flex items-center justify-center w-14 h-14 bg-primary text-white rounded-full shadow-lg shadow-primary/40 hover:bg-primary-dark transition-all duration-300 hover:scale-110 active:scale-95 group"
+          title="Novo BPA-I"
         >
           <span className="material-symbols-outlined text-[28px] group-hover:rotate-90 transition-transform">add</span>
         </button>
       )}
+      
+      {(userProfile?.role === 'admin' || hasPermission('create_bpac')) && activeTab === 'BPA-C' && (
+        <button 
+          onClick={onNewBpac}
+          className="fixed bottom-8 right-8 z-40 flex items-center justify-center w-14 h-14 bg-accent-purple text-white rounded-full shadow-lg shadow-purple-500/40 hover:bg-purple-700 transition-all duration-300 hover:scale-110 active:scale-95 group"
+          title="Novo BPA-C"
+        >
+          <span className="material-symbols-outlined text-[28px]">post_add</span>
+        </button>
+      )}
+
     </div>
   );
 };
 
-// Sub-components for Dashboard
-const MetricCard = ({ label, value, trend, icon, progress, color, statusType }: any) => {
-  const colorMap: any = {
-    primary: 'bg-primary',
-    'accent-purple': 'bg-accent-purple',
-    'accent-teal': 'bg-accent-teal',
-  };
-
-  const trendColor = statusType === 'warning' ? 'text-orange-600 bg-orange-100 dark:bg-orange-900/30' : 'text-green-600 bg-green-100 dark:bg-green-900/30';
-  const trendIcon = statusType === 'warning' ? 'warning' : 'trending_up';
-
+// Error Boundary Wrapper
+const Dashboard: React.FC<DashboardProps> = (props) => {
   return (
-    <div className="bg-surface-light dark:bg-surface-dark p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 relative overflow-hidden group transition-all hover:shadow-md">
-      <div className="flex justify-between items-start mb-4">
-        <div className={`p-2.5 rounded-xl ${colorMap[color]}/10 ${color === 'primary' ? 'text-primary' : color === 'accent-purple' ? 'text-accent-purple' : 'text-accent-teal'} border border-slate-100 dark:border-slate-800`}>
-          <span className="material-symbols-outlined text-[24px]">{icon}</span>
-        </div>
-        <span className={`flex items-center text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wider ${trendColor}`}>
-          {statusType === 'warning' && <span className="material-symbols-outlined text-[14px] mr-1">warning</span>}
-          {statusType !== 'warning' && <span className="material-symbols-outlined text-[14px] mr-1">trending_up</span>}
-          {trend}
-        </span>
-      </div>
-      <p className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-widest">{label}</p>
-      <h3 className="text-3xl font-bold text-slate-900 dark:text-white mt-1.5">{value}</h3>
-      <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-5 overflow-hidden">
-        <div className={`${colorMap[color]} h-full rounded-full transition-all duration-1000 shadow-[0_0_8px_rgba(19,127,236,0.4)]`} style={{ width: `${progress}%` }}></div>
-      </div>
-    </div>
+    <ErrorBoundary>
+      <DashboardContent {...props} />
+    </ErrorBoundary>
   );
 };
 
-const QuickCard = ({ title, subtitle, icon, image, gradient, onClick }: any) => (
-  <div 
-    onClick={onClick}
-    className="relative overflow-hidden rounded-2xl h-48 group cursor-pointer shadow-sm hover:shadow-xl transition-all border border-transparent dark:border-slate-800"
-  >
-    {image ? (
-      <div 
-        className="absolute inset-0 bg-cover bg-center transition-transform duration-1000 group-hover:scale-105" 
-        style={{ backgroundImage: `url("${image}")` }}
-      />
-    ) : (
-      <div 
-        className={`absolute inset-0 bg-gradient-to-br ${gradient || 'from-slate-700 to-slate-900'} transition-transform duration-1000 group-hover:scale-105`} 
-      />
-    )}
-    <div className={`absolute inset-0 ${image ? 'bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-transparent' : 'bg-black/10'}`}></div>
-    <div className="absolute inset-0 p-6 flex flex-col justify-end">
-      <div className="bg-white/10 backdrop-blur-md w-12 h-12 rounded-xl flex items-center justify-center mb-3 text-white border border-white/20 group-hover:bg-white/20 group-hover:border-white/40 transition-all shadow-lg">
-        <span className="material-symbols-outlined text-[28px]">{icon}</span>
-      </div>
-      <h3 className="text-white font-bold text-2xl leading-tight tracking-tight">{title}</h3>
-      <p className="text-white/70 text-[10px] mt-1 font-extrabold tracking-widest uppercase">{subtitle}</p>
+// Sub-components
+const StatusCard = ({ label, value, icon, color, bg, borderColor }: any) => (
+    <div className={`p-4 rounded-2xl border ${borderColor} ${bg} flex flex-col items-center justify-center text-center transition-transform hover:scale-105`}>
+        <span className={`material-symbols-outlined text-[28px] mb-2 ${color}`}>{icon}</span>
+        <h3 className={`text-2xl font-black ${color}`}>{value}</h3>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 mt-1">{label}</p>
     </div>
-  </div>
 );
 
 export default Dashboard;

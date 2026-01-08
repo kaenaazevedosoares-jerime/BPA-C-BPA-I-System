@@ -45,3 +45,36 @@ export interface WhatsAppTemplate {
   message: string;
   created_at?: string;
 }
+
+// Interfaces para Dashboard (Novas Views)
+export interface DashboardBpaiStatus {
+  ano: string;
+  mes: string;
+  finalizados: number;
+  pendentes: number;
+  consulta_molde: number;
+  agendado_entrega: number;
+  cancelados: number;
+  processado_sia: number;
+}
+
+export interface DashboardProcedureStat {
+  ano: string;
+  mes: string;
+  procedure_name: string;
+  total: number;
+}
+
+export interface DashboardProfessionalStat {
+  ano: string;
+  mes: string;
+  professional_name: string;
+  total: number;
+}
+
+export interface DashboardBpacUnitStat {
+  ano_texto: string;
+  reference_month: string;
+  unit_name: string;
+  total: number;
+}

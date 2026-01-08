@@ -168,19 +168,21 @@ const BpaProductionForm: React.FC<BpaProductionFormProps> = ({ onCancel, onSave 
       // 1. Check/Create Header
       let { data: header, error: headerError } = await supabase
         .from('bpa_consolidated')
-        .select('id, total_quantity')
+        .select('id, total_quantity, professional_id')
         .eq('cnes', cnes)
         .eq('reference_month', refMonth)
-        .single();
+        .eq('professional_id', selectedProfessional.id) // Busca cabeçalho específico deste profissional
+        .maybeSingle(); // Usa maybeSingle para evitar erro se não encontrar
 
       if (!header) {
-        // Create new
+        // Create new header specific for this professional
         const { data: newHeader, error: createError } = await supabase
           .from('bpa_consolidated')
           .insert([{
             cnes,
             reference_month: refMonth,
-            total_quantity: 0
+            total_quantity: 0,
+            professional_id: selectedProfessional.id
           }])
           .select()
           .single();

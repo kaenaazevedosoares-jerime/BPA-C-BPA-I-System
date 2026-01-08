@@ -167,6 +167,16 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='procedure_production' AND column_name='date_sia') THEN
         ALTER TABLE public.procedure_production ADD COLUMN date_sia DATE;
     END IF;
+
+    -- Adicionar professional_id (Vínculo com Profissional para Dashboard)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='procedure_production' AND column_name='professional_id') THEN
+        ALTER TABLE public.procedure_production ADD COLUMN professional_id UUID REFERENCES public.profissionais(id);
+    END IF;
+
+    -- Adicionar professional_id em BPA CONSOLIDADO (Para rastrear quem produziu)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='bpa_consolidated' AND column_name='professional_id') THEN
+        ALTER TABLE public.bpa_consolidated ADD COLUMN professional_id UUID REFERENCES public.profissionais(id);
+    END IF;
 END $$;
 
 COMMENT ON COLUMN public.procedure_production.sia_processed IS 'Indica se o procedimento foi processado no SIA/SUS';
@@ -290,6 +300,87 @@ BEGIN
      OR code ILIKE '%' || search_term || '%';
 END;
 $$ LANGUAGE plpgsql;
+
+-- 3.4 Views para Dashboard (Estatísticas em Tempo Real)
+
+-- View: Métricas Gerais BPA-I (Status)
+CREATE OR REPLACE VIEW public.vw_dashboard_bpai_status AS
+SELECT
+    TO_CHAR(date_service, 'YYYY') AS ano,
+    TO_CHAR(date_service, 'MM') AS mes,
+    COUNT(*) FILTER (WHERE status = 'Finalizado' OR status = 'Concluído' OR sia_processed = true) AS finalizados,
+    COUNT(*) FILTER (WHERE status = 'Pendente' OR status = 'Em Produção') AS pendentes,
+    COUNT(*) FILTER (WHERE status = 'Consulta/Molde') AS consulta_molde,
+    COUNT(*) FILTER (WHERE status = 'Agendado Entrega') AS agendado_entrega,
+    COUNT(*) FILTER (WHERE status = 'Cancelado') AS cancelados
+FROM procedure_production
+GROUP BY 1, 2;
+
+-- View: Ranking Procedimentos BPA-I
+CREATE OR REPLACE VIEW public.vw_dashboard_bpai_procedures AS
+SELECT
+    TO_CHAR(pp.date_service, 'YYYY') AS ano,
+    TO_CHAR(pp.date_service, 'MM') AS mes,
+    pc.name AS procedure_name,
+    COUNT(*) AS total
+FROM procedure_production pp
+LEFT JOIN procedures_catalog pc ON pp.procedure_code = pc.code
+GROUP BY 1, 2, 3;
+
+-- View: Produção por Profissional BPA-I
+CREATE OR REPLACE VIEW public.vw_dashboard_bpai_professionals AS
+SELECT
+    TO_CHAR(pp.date_service, 'YYYY') AS ano,
+    TO_CHAR(pp.date_service, 'MM') AS mes,
+    p.nome AS professional_name,
+    COUNT(*) AS total
+FROM procedure_production pp
+LEFT JOIN profissionais p ON pp.professional_id = p.id
+WHERE pp.professional_id IS NOT NULL
+GROUP BY 1, 2, 3;
+
+-- View: Métricas BPA-C Consolidado (Por Unidade)
+CREATE OR REPLACE VIEW public.vw_dashboard_bpac_units AS
+SELECT
+    TRIM(SPLIT_PART(reference_month, '/', 2)) AS ano_texto,
+    bpa.reference_month,
+    e.name AS unit_name,
+    SUM(bpa.total_quantity) AS total
+FROM bpa_consolidated bpa
+LEFT JOIN establishments e ON bpa.cnes = e.cnes
+GROUP BY 1, 2, 3;
+
+-- View: Produção por Profissional BPA-C (Novo)
+CREATE OR REPLACE VIEW public.vw_dashboard_bpac_professionals AS
+SELECT
+    TRIM(SPLIT_PART(bpa.reference_month, '/', 2)) AS ano_texto,
+    bpa.reference_month,
+    p.nome AS professional_name,
+    SUM(bpa.total_quantity) AS total
+FROM bpa_consolidated bpa
+LEFT JOIN profissionais p ON bpa.professional_id = p.id
+WHERE bpa.professional_id IS NOT NULL
+GROUP BY 1, 2, 3;
+
+-- View: Ranking Procedimentos BPA-C
+CREATE OR REPLACE VIEW public.vw_dashboard_bpac_procedures AS
+SELECT
+    TRIM(SPLIT_PART(bpa.reference_month, '/', 2)) AS ano_texto,
+    bpa.reference_month,
+    COALESCE(pc.name, items.procedure_info) AS procedure_name,
+    SUM(items.quantity) AS total
+FROM bpa_consolidated_items items
+JOIN bpa_consolidated bpa ON items.bpa_id = bpa.id
+LEFT JOIN procedures_catalog pc ON items.procedure_info = pc.code -- Tenta match pelo código
+GROUP BY 1, 2, 3;
+
+-- Permitir acesso às views
+GRANT SELECT ON public.vw_dashboard_bpai_status TO authenticated;
+GRANT SELECT ON public.vw_dashboard_bpai_procedures TO authenticated;
+GRANT SELECT ON public.vw_dashboard_bpai_professionals TO authenticated;
+GRANT SELECT ON public.vw_dashboard_bpac_units TO authenticated;
+GRANT SELECT ON public.vw_dashboard_bpac_professionals TO authenticated;
+GRANT SELECT ON public.vw_dashboard_bpac_procedures TO authenticated;
 
 -- =================================================================================================
 -- 4. POLÍTICAS DE SEGURANÇA (RLS)

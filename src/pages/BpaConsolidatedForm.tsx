@@ -20,6 +20,12 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
   const [cnesName, setCnesName] = useState('');
   const [cnesSuggestions, setCnesSuggestions] = useState<Array<{ id: string; cnes: string; name: string }>>([]);
   const [month, setMonth] = useState('Março / 2024');
+  
+  // Novo estado para seleção de profissional
+  const [selectedProfessional, setSelectedProfessional] = useState<{ id: string; nome: string } | null>(null);
+  const [profSuggestions, setProfSuggestions] = useState<Array<{ id: string; nome: string }>>([]);
+  const [profSearch, setProfSearch] = useState('');
+
   const [loading, setLoading] = useState(false);
   const [entries, setEntries] = useState<ProductionEntry[]>([
     { id: '1', procedure: '', cbo: '', quantity: 1 }
@@ -28,7 +34,7 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
   const [cboSug, setCboSug] = useState<Record<string, Array<{ code: string; occupation: string }>>>({});
   const [procedureNames, setProcedureNames] = useState<Record<string, string>>({});
   const [cboNames, setCboNames] = useState<Record<string, string>>({});
-  const [bpaList, setBpaList] = useState<Array<{ header: any; items: any[]; establishmentName?: string }>>([]);
+  const [bpaList, setBpaList] = useState<Array<{ header: any; items: any[]; establishmentName?: string; professionalName?: string }>>([]);
   const [listLoading, setListLoading] = useState(false);
   const [editingBpaId, setEditingBpaId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -71,17 +77,31 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
   const fetchBpaList = async () => {
     setListLoading(true);
     const { data: headers } = await supabase.from('bpa_consolidated').select('*').order('created_at', { ascending: false });
-    const list: Array<{ header: any; items: any[]; establishmentName?: string }> = [];
+    const list: Array<{ header: any; items: any[]; establishmentName?: string; professionalName?: string }> = [];
     if (headers && headers.length) {
       const cnesSet = Array.from(new Set(headers.map((h: any) => h.cnes).filter(Boolean)));
+      const profSet = Array.from(new Set(headers.map((h: any) => h.professional_id).filter(Boolean))) as string[];
+      
       let estabMap: Record<string, string> = {};
       if (cnesSet.length) {
         const { data: estabs } = await supabase.from('establishments').select('cnes,name').in('cnes', cnesSet);
         (estabs || []).forEach((e: any) => { estabMap[e.cnes] = e.name; });
       }
+
+      let profMap: Record<string, string> = {};
+      if (profSet.length) {
+        const { data: profs } = await supabase.from('profissionais').select('id,nome').in('id', profSet);
+        (profs || []).forEach((p: any) => { profMap[p.id] = p.nome; });
+      }
+
       for (const h of headers) {
         const { data: items } = await supabase.from('bpa_consolidated_items').select('*').eq('bpa_id', h.id);
-        list.push({ header: h, items: items || [], establishmentName: estabMap[h.cnes] });
+        list.push({ 
+          header: h, 
+          items: items || [], 
+          establishmentName: estabMap[h.cnes],
+          professionalName: h.professional_id ? profMap[h.professional_id] : undefined
+        });
       }
     }
     setBpaList(list);
@@ -108,6 +128,17 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
         .limit(10);
       setCnesSuggestions(data || []);
     }
+  };
+
+  const searchProfessional = async (term: string) => {
+    if (!term) { setProfSuggestions([]); return; }
+    const like = `%${term}%`;
+    const { data } = await supabase
+        .from('profissionais')
+        .select('id,nome')
+        .ilike('nome', like)
+        .limit(10);
+    setProfSuggestions(data || []);
   };
 
   const searchProcedure = async (id: string, term: string) => {
@@ -155,11 +186,17 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
     setLoading(true);
 
     const totalQty = entries.reduce((sum, e) => sum + Number(e.quantity || 0), 0);
+    const profId = selectedProfessional?.id || null;
 
     if (editingBpaId) {
       const { error: updErr } = await supabase
         .from('bpa_consolidated')
-        .update({ cnes: cnesValue, reference_month: month, total_quantity: totalQty })
+        .update({ 
+            cnes: cnesValue, 
+            reference_month: month, 
+            total_quantity: totalQty,
+            professional_id: profId 
+        })
         .eq('id', editingBpaId);
       if (updErr) {
         alert('Erro ao atualizar BPA-C: ' + updErr.message);
@@ -186,7 +223,12 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
     } else {
       const { data: bpaData, error: bpaError } = await supabase
         .from('bpa_consolidated')
-        .insert([{ cnes: cnesValue, reference_month: month, total_quantity: totalQty }])
+        .insert([{ 
+            cnes: cnesValue, 
+            reference_month: month, 
+            total_quantity: totalQty,
+            professional_id: profId 
+        }])
         .select()
         .single();
       if (bpaError) {
@@ -277,6 +319,34 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400"><span className="font-semibold">{cnesName}</span></p>
             )}
           </div>
+          <div className="group md:col-span-1 lg:col-span-1">
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-widest">Profissional Responsável</label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-slate-400 text-[20px]">person</span>
+              <input 
+                type="text"
+                value={selectedProfessional ? selectedProfessional.nome : profSearch}
+                onChange={(e) => { 
+                    setProfSearch(e.target.value); 
+                    setSelectedProfessional(null); 
+                    searchProfessional(e.target.value); 
+                }}
+                onFocus={() => { if(selectedProfessional) { setProfSearch(''); setSelectedProfessional(null); } }}
+                placeholder="Buscar Profissional..."
+                className="w-full bg-slate-50 dark:bg-background-dark border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl py-3.5 pl-12 pr-4 focus:border-primary focus:ring-1 focus:ring-primary transition-all text-sm"
+              />
+              {profSuggestions.length > 0 && (
+                <div className="absolute left-0 right-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg z-20 max-h-56 overflow-y-auto">
+                  {profSuggestions.map(p => (
+                    <button key={p.id} onClick={() => { setSelectedProfessional(p); setProfSuggestions([]); }} className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700">
+                      <span className="font-medium text-slate-700 dark:text-slate-200">{p.nome}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="group md:col-span-1 lg:col-span-1">
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-widest">Mês de Referência</label>
             {(() => {
