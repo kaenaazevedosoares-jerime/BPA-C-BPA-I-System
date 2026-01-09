@@ -64,7 +64,7 @@ const Header: React.FC<HeaderProps> = ({ theme, onToggleTheme, onOpenSidebar, cu
           title={`Mudar para Modo ${theme === 'light' ? 'Escuro' : 'Claro'}`}
         >
           <span className="material-symbols-outlined text-[20px] flex items-center justify-center">
-            {theme === 'light' ? 'dark_mode' : 'light_mode'}
+            {theme === 'light' ? 'light_mode' : 'dark_mode'}
           </span>
         </button>
         

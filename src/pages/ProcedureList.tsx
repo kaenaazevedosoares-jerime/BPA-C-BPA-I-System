@@ -132,6 +132,74 @@ const ConfirmationModal = ({ title, message, onConfirm, onClose }: { title: stri
   );
 };
 
+const StatusChangeDateModal = ({ status, onClose, onConfirm }: { status: string, onClose: () => void, onConfirm: (date: string, time: string) => void }) => {
+  const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
+
+  const getTitle = () => {
+    switch (status) {
+      case 'Consulta/Molde': return 'Data da Consulta/Molde';
+      case 'Agendado Entrega': return 'Data do Agendamento';
+      case 'Finalizado': return 'Data da Entrega/Finalização';
+      case 'Cancelado': return 'Data do Cancelamento';
+      default: return 'Confirmar Data';
+    }
+  };
+
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white dark:bg-surface-dark w-full max-w-sm rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-700 animate-fade-in" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-6">
+           <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                 <span className="material-symbols-outlined">event</span>
+              </div>
+              <div>
+                 <h3 className="font-bold text-lg leading-tight text-slate-900 dark:text-white">{getTitle()}</h3>
+                 <p className="text-xs text-slate-500">Informe a data para alterar o status</p>
+              </div>
+           </div>
+           <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors">
+              <span className="material-symbols-outlined">close</span>
+           </button>
+        </div>
+        
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Data (Obrigatório)</label>
+            <input 
+              type="date" 
+              value={date} 
+              onChange={(e) => setDate(e.target.value)} 
+              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Hora (Opcional)</label>
+            <input 
+              type="time" 
+              value={time} 
+              onChange={(e) => setTime(e.target.value)} 
+              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500/50 text-slate-900 dark:text-white"
+            />
+          </div>
+        </div>
+        
+        <button 
+          onClick={() => {
+            if (!date) return alert('A data é obrigatória');
+            onConfirm(date, time);
+          }}
+          className="w-full mt-6 bg-blue-500 hover:bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-500/30 transition-all flex items-center justify-center gap-2"
+        >
+           Confirmar Alteração
+        </button>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
 const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
   const [items, setItems] = useState<ProcedureItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -151,6 +219,10 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
 
   const [showSiaModal, setShowSiaModal] = useState(false);
   const [siaTargetId, setSiaTargetId] = useState<string | null>(null);
+
+  // Status Change Date Modal State
+  const [showStatusDateModal, setShowStatusDateModal] = useState(false);
+  const [statusChangeTarget, setStatusChangeTarget] = useState<{ id: string, newStatus: string } | null>(null);
   
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
@@ -313,6 +385,14 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
   };
 
   const handleStatusChange = async (id: string, newStatus: string) => {
+    // Check if the status requires a date input
+    if (['Consulta/Molde', 'Agendado Entrega', 'Finalizado', 'Cancelado'].includes(newStatus)) {
+      setStatusChangeTarget({ id, newStatus });
+      setShowStatusDateModal(true);
+      return;
+    }
+
+    // Standard update for other statuses
     try {
       const { error } = await supabase.from('procedure_production').update({ status: newStatus }).eq('id', id);
       if (error) throw error;
@@ -330,6 +410,71 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
       }));
     } catch (error) {
       console.error('Erro ao atualizar status:', error);
+      alert('Erro ao atualizar status.');
+    }
+  };
+
+  const handleStatusDateConfirm = async (date: string, time: string) => {
+    if (!statusChangeTarget) return;
+    const { id, newStatus } = statusChangeTarget;
+
+    // Construct timestamp or date string
+    // If time is provided, append it. Otherwise, default to 00:00:00 or just date if needed.
+    // Given the previous code uses formatDate with T split, let's use ISO format with time if possible, or just date.
+    // Supabase date/timestamp columns usually accept YYYY-MM-DD HH:MM:SS
+    const dateTime = time ? `${date} ${time}:00` : `${date} 00:00:00`;
+
+    const updates: any = { status: newStatus };
+    
+    // Map status to date column
+    if (newStatus === 'Consulta/Molde') updates.date_service = dateTime;
+    else if (newStatus === 'Agendado Entrega') updates.date_scheduling = dateTime;
+    else if (newStatus === 'Finalizado') updates.date_delivery = dateTime;
+    else if (newStatus === 'Cancelado') updates.date_cancellation = dateTime;
+
+    try {
+      const { error } = await supabase.from('procedure_production').update(updates).eq('id', id);
+      if (error) throw error;
+
+      // Helper to format date for display (DD/MM/YYYY)
+      const formatDate = (dateStr: string) => {
+         try {
+           const cleanDate = dateStr.split(/[T ]/)[0];
+           return cleanDate.split('-').reverse().join('/');
+         } catch (e) {
+           return 'N/A';
+         }
+      };
+
+      const displayDate = formatDate(date);
+      const rawDate = date; // YYYY-MM-DD
+
+      setItems(prev => prev.map(item => {
+        if (item.id === id) {
+          let statusColor = 'text-slate-500';
+          if (newStatus === 'Em Produção' || newStatus === 'Em Atendimento' || newStatus === 'Consulta/Molde') statusColor = 'text-primary';
+          else if (newStatus === 'Finalizado' || newStatus === 'Concluído') statusColor = 'text-emerald-500';
+          else if (newStatus === 'Agendado' || newStatus === 'Agendado Entrega') statusColor = 'text-yellow-500';
+          else if (newStatus === 'Cancelado') statusColor = 'text-red-500';
+          else if (newStatus === 'CNS Inválido') statusColor = 'text-orange-600';
+          
+          const updatedItem = { ...item, status: newStatus, statusColor };
+          
+          // Update local item date fields for immediate feedback
+          if (newStatus === 'Consulta/Molde') { updatedItem.date = displayDate; updatedItem.rawDate = rawDate; }
+          else if (newStatus === 'Agendado Entrega') { updatedItem.dateScheduling = displayDate; updatedItem.rawDateScheduling = rawDate; }
+          else if (newStatus === 'Finalizado') { updatedItem.dateDelivery = displayDate; updatedItem.rawDateDelivery = rawDate; }
+          else if (newStatus === 'Cancelado') { updatedItem.dateCancellation = displayDate; updatedItem.rawDateCancellation = rawDate; }
+          
+          return updatedItem;
+        }
+        return item;
+      }));
+
+      setShowStatusDateModal(false);
+      setStatusChangeTarget(null);
+    } catch (error) {
+      console.error('Erro ao atualizar status e data:', error);
       alert('Erro ao atualizar status.');
     }
   };
@@ -584,11 +729,40 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
     );
   };
 
+  const getEffectiveDate = (item: ProcedureItem) => {
+      const s = item.status.trim();
+      if (s === 'Finalizado' || s === 'Concluído') return item.rawDateDelivery || item.rawDate;
+      if (s === 'Cancelado') return item.rawDateCancellation || item.rawDate;
+      if (s === 'Agendado Entrega') return item.rawDateScheduling || item.rawDate;
+      return item.rawDate; // Default for Consulta/Molde etc
+  };
+
   const filteredItems = items.filter(item => {
     return checkStatusFilter(item) && 
            checkSiaFilter(item) && 
            checkDateInRange(item) && 
            checkSearchFilter(item);
+  }).sort((a, b) => {
+      // Sorting Logic
+      // 1. If SIA Filter is Processed -> Sort by SIA Date DESC (or Effective Date DESC)
+      if (filterSia === 'processed') {
+          const dateA = a.rawDateSia || getEffectiveDate(a) || '';
+          const dateB = b.rawDateSia || getEffectiveDate(b) || '';
+          return dateB.localeCompare(dateA);
+      }
+
+      // 2. If Status Filter is Finalizado or Cancelado -> Sort DESC (Recent -> Old)
+      if (filter === 'Finalizado' || filter === 'Concluído' || filter === 'Cancelado') {
+          const dateA = getEffectiveDate(a) || '';
+          const dateB = getEffectiveDate(b) || '';
+          return dateB.localeCompare(dateA);
+      }
+
+      // 3. All other cases (Pending statuses, or 'Todos' default view for pending workflow) -> Sort ASC (Old -> Recent)
+      // "Já os outros status será do mais antigo para o mais recente."
+      const dateA = getEffectiveDate(a) || '';
+      const dateB = getEffectiveDate(b) || '';
+      return dateA.localeCompare(dateB);
   });
 
   const handleExportTxt = () => {
@@ -708,6 +882,15 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         />
       )}
 
+      {/* Status Change Date Modal */}
+      {showStatusDateModal && statusChangeTarget && (
+        <StatusChangeDateModal
+          status={statusChangeTarget.newStatus}
+          onClose={() => { setShowStatusDateModal(false); setStatusChangeTarget(null); }}
+          onConfirm={handleStatusDateConfirm}
+        />
+      )}
+
       {/* SIA Date Modal */}
       {showSiaModal && (
         <SiaDateModal 
@@ -739,26 +922,30 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
 
       <div className="flex flex-col gap-4">
         {/* Actions Bar */}
-        <div className="flex justify-end gap-3">
-          <button 
-            onClick={handleExportTxt}
-            className="flex items-center gap-2 bg-slate-800 text-white font-bold px-4 py-2.5 rounded-xl shadow-lg hover:bg-slate-700 transition-all duration-300 active:scale-95 text-sm"
-          >
-            <span className="material-symbols-outlined text-[20px]">text_snippet</span>
-            <span>Exportar TXT</span>
-          </button>
+        <div className="flex flex-col sm:flex-row justify-end gap-3">
+          {userProfile?.role === 'admin' && (
+            <>
+              <button 
+                onClick={handleExportTxt}
+                className="flex items-center justify-center gap-2 bg-slate-800 text-white font-bold px-4 py-2.5 rounded-xl shadow-lg hover:bg-slate-700 transition-all duration-300 active:scale-95 text-sm w-full sm:w-auto"
+              >
+                <span className="material-symbols-outlined text-[20px]">text_snippet</span>
+                <span>Exportar TXT</span>
+              </button>
 
-          <button 
-            onClick={() => setShowImportModal(true)}
-            className="flex items-center gap-2 bg-emerald-900/80 text-emerald-400 font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-900/20 hover:bg-emerald-900 transition-all duration-300 active:scale-95 border border-emerald-800 backdrop-blur-sm text-sm"
-          >
-            <span className="material-symbols-outlined text-[20px]">upload_file</span>
-            <span>Importar Excel</span>
-          </button>
+              <button 
+                onClick={() => setShowImportModal(true)}
+                className="flex items-center justify-center gap-2 bg-emerald-900/80 text-emerald-400 font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-900/20 hover:bg-emerald-900 transition-all duration-300 active:scale-95 border border-emerald-800 backdrop-blur-sm text-sm w-full sm:w-auto"
+              >
+                <span className="material-symbols-outlined text-[20px]">upload_file</span>
+                <span>Importar Excel</span>
+              </button>
+            </>
+          )}
 
           <button 
             onClick={onAddNew} 
-            className="flex items-center gap-2 bg-primary text-white font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-primary/40 hover:bg-primary-dark transition-all duration-300 active:scale-95 text-sm"
+            className="flex items-center justify-center gap-2 bg-primary text-white font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-primary/40 hover:bg-primary-dark transition-all duration-300 active:scale-95 text-sm w-full sm:w-auto"
           >
             <span className="material-symbols-outlined text-[20px]">add</span>
             <span>Novo Procedimento</span>
@@ -779,19 +966,19 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         </div>
 
         {/* Date Filter Inputs */}
-        <div className="flex gap-2 items-center">
+        <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center sm:flex sm:w-auto">
            <input 
              type="date"
              value={dateStart}
              onChange={(e) => setDateStart(e.target.value)}
-             className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-dark px-3 py-2 text-sm text-slate-600 dark:text-slate-300 outline-none focus:border-primary"
+             className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-dark px-3 py-3 sm:py-2 text-sm text-slate-600 dark:text-slate-300 outline-none focus:border-primary"
            />
-           <span className="text-slate-400">-</span>
+           <span className="text-slate-400 font-bold">-</span>
            <input 
              type="date"
              value={dateEnd}
              onChange={(e) => setDateEnd(e.target.value)}
-             className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-dark px-3 py-2 text-sm text-slate-600 dark:text-slate-300 outline-none focus:border-primary"
+             className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-surface-dark px-3 py-3 sm:py-2 text-sm text-slate-600 dark:text-slate-300 outline-none focus:border-primary"
            />
         </div>
 
@@ -832,16 +1019,16 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
              )}
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide items-center">
+        <div className="flex flex-wrap gap-2 items-center">
           <FilterButton label="Em Produção" count={getCount('Em Produção')} active={filter === 'Em Produção'} onClick={() => setFilter(filter === 'Em Produção' ? 'Todos' : 'Em Produção')} />
           
           {/* Status Dropdown Filter */}
-          <div className="relative">
-             <div className="relative">
+          <div className="relative grow sm:grow-0">
+             <div className="relative w-full">
              <select
                value={filter !== 'Em Produção' ? filter : 'Todos'}
                onChange={(e) => setFilter(e.target.value)}
-               className="appearance-none bg-white dark:bg-surface-dark border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 rounded-full pl-4 pr-12 py-2 text-sm font-semibold transition-all hover:border-slate-300 dark:hover:border-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer min-w-[160px]"
+               className="appearance-none w-full bg-white dark:bg-surface-dark border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 rounded-full pl-4 pr-12 py-2 text-sm font-semibold transition-all hover:border-slate-300 dark:hover:border-slate-700 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer min-w-[160px]"
              >
                <option value="Todos">Todos os Status</option>
                <option value="Em Atendimento">Em Atendimento</option>
@@ -860,11 +1047,11 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
              </div>
           </div>
           
-          <div className="w-px bg-slate-200 dark:bg-slate-700 mx-2 h-6"></div>
+          <div className="hidden sm:block w-px bg-slate-200 dark:bg-slate-700 mx-2 h-6"></div>
           
           <button 
             onClick={() => setFilterSia(filterSia === 'all' ? 'processed' : filterSia === 'processed' ? 'pending' : 'all')}
-            className={`flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all active:scale-95 border ${filterSia !== 'all' ? (filterSia === 'processed' ? 'bg-green-500 text-white border-green-500' : 'bg-red-500 text-white border-red-500') : 'bg-white dark:bg-surface-dark border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'}`}
+            className={`flex grow sm:grow-0 shrink-0 items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-all active:scale-95 border ${filterSia !== 'all' ? (filterSia === 'processed' ? 'bg-green-500 text-white border-green-500' : 'bg-red-500 text-white border-red-500') : 'bg-white dark:bg-surface-dark border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'}`}
           >
             <span className="material-symbols-outlined text-[18px]">
               {filterSia === 'all' ? 'filter_alt' : filterSia === 'processed' ? 'check_circle' : 'pending'}
@@ -949,10 +1136,10 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
               key={item.id} 
               className="group relative rounded-2xl bg-surface-light dark:bg-surface-dark border border-slate-200 dark:border-slate-800 shadow-sm transition-all open:ring-2 open:ring-primary/20 open:z-30"
             >
-              <summary className="flex cursor-pointer items-center p-4 list-none relative">
+              <summary className="flex flex-col sm:flex-row cursor-pointer sm:items-center p-4 list-none relative gap-3 sm:gap-0">
                 {/* Admin Checkbox */}
                 {userProfile?.role === 'admin' && (
-                   <div className="relative flex items-center mr-4" onClick={(e) => e.stopPropagation()}>
+                   <div className="absolute top-4 left-4 sm:static sm:mr-4 z-10" onClick={(e) => e.stopPropagation()}>
                      <input
                        type="checkbox"
                        checked={selectedItems.has(item.id)}
@@ -963,7 +1150,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                    </div>
                 )}
 
-                <div className="flex items-center gap-4 flex-1 min-w-0 mr-10">
+                <div className={`flex items-center gap-4 flex-1 min-w-0 ${userProfile?.role === 'admin' ? 'pl-8 sm:pl-0' : ''}`}>
                   {/* Avatar */}
                   <div className="relative shrink-0">
                     <div className="size-10 overflow-hidden rounded-full border border-slate-100 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
@@ -975,18 +1162,18 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                   </div>
 
                   {/* Info Column: Name & SUS */}
-                  <div className="flex flex-col">
-                    <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight flex items-center gap-2">
-                      {item.name}
+                  <div className="flex flex-col min-w-0">
+                    <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-tight flex flex-wrap items-center gap-2">
+                      <span className="truncate">{item.name}</span>
                       {/* Em Produção Badge - Highlighted */}
                       {(item.status === 'Consulta/Molde' || item.status === 'Agendado Entrega') && (
-                        <span className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold border border-amber-200 dark:border-amber-800 flex items-center gap-1">
+                        <span className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold border border-amber-200 dark:border-amber-800 flex items-center gap-1 shrink-0">
                           <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
                           Em Produção
                         </span>
                       )}
                     </h3>
-                    <div className="flex items-center gap-1 mt-0.5 text-slate-500 dark:text-slate-400">
+                    <div className="flex flex-wrap items-center gap-1 mt-0.5 text-slate-500 dark:text-slate-400">
                       <span className="material-symbols-outlined text-[14px]">id_card</span>
                       <span className="text-[11px] font-mono font-medium">{item.cns}</span>
                       <span className="mx-1">•</span>
@@ -1003,57 +1190,54 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                       </span>
                     </div>
                   </div>
-
-                  {/* Spacer */}
-                  <div className="flex-1"></div>
-
-                  {/* Right Actions: SIA, WhatsApp (W) & Status (A) */}
-                  <div className="flex flex-col items-end gap-2 sm:flex-row sm:items-center sm:gap-4" onClick={(e) => e.preventDefault()}>
-                    <div className="flex items-center gap-2">
-                     {/* SIA Toggle Button */}
-                     <button 
-                       onClick={(e) => {
-                         e.stopPropagation();
-                         handleToggleSia(item.id, item.sia_processed || false, !!item.dateSia);
-                       }}
-                       className={`group flex items-center justify-center h-9 px-3 rounded-full transition-all border shadow-sm ${
-                           item.sia_processed 
-                               ? (item.dateSia ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200' : 'bg-gradient-to-r from-green-100 to-yellow-100 text-green-800 border-green-200 hover:from-green-200 hover:to-yellow-200')
-                               : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
-                       } ${userProfile?.role === 'admin' ? 'cursor-pointer active:scale-95' : 'cursor-default opacity-80'}`}
-                       title={userProfile?.role === 'admin' ? 'Alternar Status SIA' : 'Status SIA (Somente Admin)'}
-                     >
-                       <span className="text-[10px] font-bold uppercase mr-1">SIA</span>
-                       {item.sia_processed && item.dateSia ? (
-                           <span className="text-[10px] font-bold font-mono">{item.dateSia.substring(3)}</span>
-                       ) : (
-                           <div className={`w-2 h-2 rounded-full ${item.sia_processed ? 'bg-green-500' : 'bg-slate-400'}`}></div>
-                       )}
-                     </button>
-
-                     {/* W: WhatsApp Button */}
-                     <button 
-                       onClick={(e) => {
-                         e.stopPropagation();
-                         setWhatsAppItem(item);
-                         setShowWhatsApp(true);
-                       }}
-                       className="group flex items-center justify-center w-9 h-9 rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 hover:bg-green-500 hover:text-white transition-all border border-green-200 dark:border-green-800/50 shadow-sm"
-                       title="Enviar WhatsApp"
-                     >
-                       <span className="material-symbols-outlined text-[18px]">chat</span>
-                     </button>
-                    </div>
-
-                     {/* A: Status Dropdown */}
-                     <StatusDropdown 
-                       currentStatus={item.status} 
-                       statusColor={item.statusColor} 
-                       onChange={(newStatus) => handleStatusChange(item.id, newStatus)} 
-                     />
-                  </div>
                 </div>
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-slate-400 group-open:rotate-180 transition-transform">expand_more</span>
+
+                {/* Right Actions: SIA, WhatsApp (W) & Status (A) */}
+                <div className="flex items-center justify-end gap-2 sm:gap-4 mt-2 sm:mt-0 sm:ml-4" onClick={(e) => e.preventDefault()}>
+                  <div className="flex items-center gap-2">
+                   {/* SIA Toggle Button */}
+                   <button 
+                     onClick={(e) => {
+                       e.stopPropagation();
+                       handleToggleSia(item.id, item.sia_processed || false, !!item.dateSia);
+                     }}
+                     className={`group flex items-center justify-center h-9 px-3 rounded-full transition-all border shadow-sm ${
+                         item.sia_processed 
+                             ? (item.dateSia ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200' : 'bg-gradient-to-r from-green-100 to-yellow-100 text-green-800 border-green-200 hover:from-green-200 hover:to-yellow-200')
+                             : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
+                     } ${userProfile?.role === 'admin' ? 'cursor-pointer active:scale-95' : 'cursor-default opacity-80'}`}
+                     title={userProfile?.role === 'admin' ? 'Alternar Status SIA' : 'Status SIA (Somente Admin)'}
+                   >
+                     <span className="text-[10px] font-bold uppercase mr-1">SIA</span>
+                     {item.sia_processed && item.dateSia ? (
+                         <span className="text-[10px] font-bold font-mono">{item.dateSia.substring(3)}</span>
+                     ) : (
+                         <div className={`w-2 h-2 rounded-full ${item.sia_processed ? 'bg-green-500' : 'bg-slate-400'}`}></div>
+                     )}
+                   </button>
+
+                   {/* W: WhatsApp Button */}
+                   <button 
+                     onClick={(e) => {
+                       e.stopPropagation();
+                       setWhatsAppItem(item);
+                       setShowWhatsApp(true);
+                     }}
+                     className="group flex items-center justify-center w-9 h-9 rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 hover:bg-green-500 hover:text-white transition-all border border-green-200 dark:border-green-800/50 shadow-sm"
+                     title="Enviar WhatsApp"
+                   >
+                     <span className="material-symbols-outlined text-[18px]">chat</span>
+                   </button>
+                  </div>
+
+                   {/* A: Status Dropdown */}
+                   <StatusDropdown 
+                     currentStatus={item.status} 
+                     statusColor={item.statusColor} 
+                     onChange={(newStatus) => handleStatusChange(item.id, newStatus)} 
+                   />
+                </div>
+                <span className="absolute right-4 top-4 sm:top-1/2 sm:-translate-y-1/2 material-symbols-outlined text-slate-400 group-open:rotate-180 transition-transform">expand_more</span>
               </summary>
               
               <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-background-dark/30 p-4 space-y-4 rounded-b-2xl">

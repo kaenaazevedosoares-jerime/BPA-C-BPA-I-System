@@ -23,7 +23,7 @@ import { supabase } from './lib/supabase';
 const App: React.FC = () => {
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem('theme');
-    return (saved as Theme) || 'light';
+    return (saved as Theme) || 'dark';
   });
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -211,7 +211,7 @@ const App: React.FC = () => {
           className="fixed top-4 right-4 z-50 p-2 rounded-full bg-surface-light dark:bg-surface-dark shadow-md border border-slate-200 dark:border-slate-800"
         >
           <span className="material-symbols-outlined text-slate-600 dark:text-slate-200">
-            {theme === 'light' ? 'dark_mode' : 'light_mode'}
+            {theme === 'light' ? 'light_mode' : 'dark_mode'}
           </span>
         </button>
         {renderView()}

@@ -207,11 +207,18 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
         return; // Block more than 11 digits
       }
     } else if (field === 'cns') {
-      // Allow only numbers
-      newValue = newValue.replace(/\D/g, '');
+      // Allow only numbers and limit to 15 digits
+      const digits = value.replace(/\D/g, '');
+      if (digits.length > 15) return;
+      newValue = digits;
     } else if (field === 'number') {
       // Allow only numbers
       newValue = newValue.replace(/\D/g, '');
+    } else if (field === 'zip_code') {
+      // CEP Mask (00000-000) and limit to 8 digits
+      const digits = value.replace(/\D/g, '');
+      if (digits.length > 8) return;
+      newValue = digits.replace(/^(\d{5})(\d)/, '$1-$2');
     }
 
     setFormData(prev => ({ ...prev, [field]: newValue }));
@@ -355,6 +362,12 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
       return alert('O Cartão SUS/CPF deve conter 11 (CPF) ou 15 (CNS) dígitos.');
     }
 
+    // CEP Validation
+    const cepDigits = formData.zip_code.replace(/\D/g, '');
+    if (cepDigits.length !== 8) {
+      return alert('O CEP deve conter 8 dígitos.');
+    }
+
     setLoading(true);
     
     // Filtra campos que não existem no banco
@@ -464,11 +477,11 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
           <p className="text-slate-500 dark:text-slate-400 text-sm">Gerencie o cadastro de usuários e pacientes do sistema.</p>
         </div>
         
-        <div className="flex gap-3">
+        <div className="flex gap-3 w-full md:w-auto">
           {!showForm && (
             <button 
               onClick={() => setShowImportModal(true)}
-              className="h-12 px-4 rounded-xl font-bold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 transition-all flex items-center gap-2 hover:shadow-md hover:bg-green-200 dark:hover:bg-green-900/50"
+              className="flex-1 md:flex-none h-12 px-4 rounded-xl font-bold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 transition-all flex items-center justify-center gap-2 hover:shadow-md hover:bg-green-200 dark:hover:bg-green-900/50"
             >
               <span className="material-symbols-outlined">upload_file</span>
               <span className="hidden sm:inline">Importar Excel</span>
@@ -477,7 +490,7 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
 
           <button 
             onClick={toggleForm}
-            className={`h-12 px-6 rounded-xl font-bold transition-all flex items-center gap-2 shadow-sm ${showForm ? 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-white' : 'bg-primary text-white shadow-primary/30'}`}
+            className={`flex-1 md:flex-none h-12 px-6 rounded-xl font-bold transition-all flex items-center justify-center gap-2 shadow-sm ${showForm ? 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-white' : 'bg-primary text-white shadow-primary/30'}`}
           >
             <span className="material-symbols-outlined">{showForm ? 'close' : 'person_add'}</span>
             {showForm ? 'Cancelar' : 'Novo Paciente'}
@@ -639,83 +652,84 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
           </div>
 
           <div className="bg-white dark:bg-surface-dark rounded-3xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-background-dark/50 border-b border-slate-100 dark:border-slate-800">
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Paciente</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">CNS</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Localização</th>
-                    <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {fetchingPatients ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center">
-                        <span className="material-symbols-outlined animate-spin text-primary text-3xl">progress_activity</span>
-                        <p className="mt-2 text-sm text-slate-500">Carregando pacientes...</p>
-                      </td>
-                    </tr>
-                  ) : filteredPatients.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center">
-                        <span className="material-symbols-outlined text-slate-300 text-4xl mb-2">person_search</span>
-                        <p className="text-sm text-slate-500 font-medium">Nenhum paciente encontrado.</p>
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredPatients.map((patient) => (
-                      <tr key={patient.id} className="group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs uppercase">
-                              {patient.name.charAt(0)}
-                            </div>
-                            <div className="flex flex-col">
-                              <span className="text-sm font-bold text-slate-900 dark:text-white">{patient.name}</span>
-                              <span className="text-[10px] text-slate-400 font-medium">
-                                {patient.birth_date ? new Date(patient.birth_date).toLocaleDateString('pt-BR') : '---'} • {patient.gender}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
-                            {patient.cns}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex flex-col">
-                            <span className="text-sm text-slate-600 dark:text-slate-400">{patient.neighborhood || '---'}</span>
-                            <span className="text-[10px] text-slate-400">{patient.city}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button 
-                              onClick={() => handleEdit(patient)}
-                              className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
-                              title="Editar Dados"
-                            >
-                              <span className="material-symbols-outlined text-[20px]">edit</span>
-                            </button>
-                            {userRole === 'admin' && (
-                              <button 
-                                onClick={() => handleDelete(patient.id)}
-                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                title="Excluir Paciente"
-                              >
-                                <span className="material-symbols-outlined text-[20px]">delete</span>
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+            {/* Header - Desktop Only */}
+            <div className="hidden md:grid grid-cols-[2fr_1fr_1fr_auto] gap-4 px-6 py-4 bg-slate-50 dark:bg-background-dark/50 border-b border-slate-100 dark:border-slate-800">
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Paciente</div>
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">CNS</div>
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Localização</div>
+              <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</div>
+            </div>
+
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {fetchingPatients ? (
+                <div className="px-6 py-12 text-center">
+                  <span className="material-symbols-outlined animate-spin text-primary text-3xl">progress_activity</span>
+                  <p className="mt-2 text-sm text-slate-500">Carregando pacientes...</p>
+                </div>
+              ) : filteredPatients.length === 0 ? (
+                <div className="px-6 py-12 text-center">
+                  <span className="material-symbols-outlined text-slate-300 text-4xl mb-2">person_search</span>
+                  <p className="text-sm text-slate-500 font-medium">Nenhum paciente encontrado.</p>
+                </div>
+              ) : (
+                filteredPatients.map((patient) => (
+                  <div key={patient.id} className="group flex flex-col md:grid md:grid-cols-[2fr_1fr_1fr_auto] gap-3 md:gap-4 px-6 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                    
+                    {/* Coluna 1: Paciente */}
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm uppercase shrink-0">
+                        {patient.name.charAt(0)}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-sm font-bold text-slate-900 dark:text-white truncate">{patient.name}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          {patient.birth_date ? new Date(patient.birth_date).toLocaleDateString('pt-BR') : '---'} • {patient.gender}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Mobile Divider & Layout Group for Details */}
+                    <div className="flex flex-col gap-3 md:contents">
+                       {/* Coluna 2: CNS */}
+                       <div className="flex items-center md:block justify-between md:mt-0 pl-[52px] md:pl-0">
+                         <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-wider">CNS</span>
+                         <span className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded inline-block">
+                           {patient.cns}
+                         </span>
+                       </div>
+
+                       {/* Coluna 3: Localização */}
+                       <div className="flex items-center md:block justify-between md:mt-0 pl-[52px] md:pl-0">
+                         <span className="md:hidden text-[10px] font-bold text-slate-400 uppercase tracking-wider">Local</span>
+                         <div className="flex flex-col text-right md:text-left">
+                           <span className="text-sm text-slate-600 dark:text-slate-400 truncate max-w-[200px] md:max-w-none">{patient.neighborhood || '---'}</span>
+                           <span className="text-[10px] text-slate-400 truncate">{patient.city}</span>
+                         </div>
+                       </div>
+                    </div>
+
+                    {/* Coluna 4: Ações */}
+                    <div className="flex items-center justify-end gap-2 mt-2 md:mt-0 border-t md:border-t-0 pt-3 md:pt-0 border-slate-100 dark:border-slate-800">
+                      <button 
+                        onClick={() => handleEdit(patient)}
+                        className="p-2 text-slate-400 hover:text-primary hover:bg-primary/10 rounded-lg transition-all"
+                        title="Editar Dados"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">edit</span>
+                      </button>
+                      {userRole === 'admin' && (
+                        <button 
+                          onClick={() => handleDelete(patient.id)}
+                          className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                          title="Excluir Paciente"
+                        >
+                          <span className="material-symbols-outlined text-[20px]">delete</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
