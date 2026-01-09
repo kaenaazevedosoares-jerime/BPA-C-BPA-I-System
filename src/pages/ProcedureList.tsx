@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom';
 import { supabase } from '../lib/supabase';
 import { WhatsAppTemplate, UserProfile } from '../types';
 import ProcedureImportModal from '../components/ProcedureImportModal';
+import { generateBpaITxt } from '../services/exportBpaService';
 import { normalizeText } from '../utils/textUtils';
 
 interface ProcedureListProps {
@@ -23,6 +24,7 @@ interface ProcedureItem {
   // Patient Details
   cns: string;
   birthDate: string;
+  rawBirthDate: string; // Added for Export
   gender: string;
   nationality: string;
   race: string;
@@ -35,6 +37,7 @@ interface ProcedureItem {
   phone: string;
   street_code: string;
   street_type: string;
+  cod_municipio?: string;
   // New fields
   sia_processed?: boolean;
   dateSia?: string; // New field for SIA processing date
@@ -198,7 +201,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
           patients (
             name, cns, birth_date, gender, nationality, race, ethnicity,
             zip_code, city, neighborhood, street, number, phone,
-            street_code, street_type
+            street_code, street_type, cod_municipio
           )
         `)
         .order('date_sia', { ascending: false, nullsFirst: false }) // Prioritize SIA date sorting
@@ -281,12 +284,14 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
           avatar: '',
           cns: p.cns || 'N/A',
           birthDate: birthDateStr,
+          rawBirthDate: p.birth_date,
           gender: p.gender || 'N/A',
           nationality: p.nationality || 'N/A',
           race: p.race || 'N/A',
           ethnicity: p.ethnicity || 'N/A',
           zipCode: p.zip_code || 'N/A',
           city: p.city || 'N/A',
+          cod_municipio: p.cod_municipio,
           street_code: p.street_code || 'N/A',
           street_type: p.street_type || 'N/A',
           street: p.street || 'N/A',
@@ -586,6 +591,42 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
            checkSearchFilter(item);
   });
 
+  const handleExportTxt = () => {
+    // Se houver itens selecionados, exporta apenas eles. Caso contrário, exporta a lista filtrada atual.
+    const itemsToExport = selectedItems.size > 0 
+      ? items.filter(item => selectedItems.has(item.id))
+      : filteredItems;
+
+    if (itemsToExport.length === 0) return alert('Nenhum registro para exportar.');
+    
+    const seenCns = new Set();
+    const uniquePatients = [];
+
+    for (const item of itemsToExport) {
+      const cns = item.cns.replace(/\D/g, '');
+      if (cns && !seenCns.has(cns)) {
+        seenCns.add(cns);
+        uniquePatients.push({
+          cns: item.cns,
+          name: item.name,
+          birth_date: item.rawBirthDate,
+          gender: item.gender,
+          nationality: item.nationality,
+          race: item.race,
+          zip_code: item.zipCode,
+          street_code: item.street_code,
+          street: item.street,
+          number: item.number,
+          neighborhood: item.neighborhood,
+          phone: item.phone,
+          cod_municipio: item.cod_municipio || (item.city.toLowerCase().includes('anajas') ? '150070' : undefined) 
+        });
+      }
+    }
+
+    generateBpaITxt(uniquePatients);
+  };
+
   const handleSelectItem = (id: string) => {
     const newSelected = new Set(selectedItems);
     if (newSelected.has(id)) {
@@ -699,6 +740,14 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
       <div className="flex flex-col gap-4">
         {/* Actions Bar */}
         <div className="flex justify-end gap-3">
+          <button 
+            onClick={handleExportTxt}
+            className="flex items-center gap-2 bg-slate-800 text-white font-bold px-4 py-2.5 rounded-xl shadow-lg hover:bg-slate-700 transition-all duration-300 active:scale-95 text-sm"
+          >
+            <span className="material-symbols-outlined text-[20px]">text_snippet</span>
+            <span>Exportar TXT</span>
+          </button>
+
           <button 
             onClick={() => setShowImportModal(true)}
             className="flex items-center gap-2 bg-emerald-900/80 text-emerald-400 font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-900/20 hover:bg-emerald-900 transition-all duration-300 active:scale-95 border border-emerald-800 backdrop-blur-sm text-sm"
@@ -830,8 +879,8 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         </div>
       </div>
       
-      {/* Bulk Actions Bar (Admin Only) */}
-      {userProfile?.role === 'admin' && (
+      {/* Bulk Actions Bar */}
+      {(selectedItems.size > 0) && (
         <div className="flex items-center justify-between bg-slate-100 dark:bg-slate-800 p-4 rounded-xl shadow-inner animate-fade-in">
            <div className="flex items-center gap-3">
              <div className="relative flex items-center">
@@ -848,14 +897,25 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
              </span>
            </div>
            
-           <button
-             onClick={handleBulkDelete}
-             disabled={selectedItems.size === 0}
-             className="flex items-center gap-2 bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold px-4 py-2 rounded-lg transition-colors text-sm shadow-sm"
-           >
-             <span className="material-symbols-outlined text-[18px]">delete</span>
-             {selectedItems.size > 0 ? `Excluir (${selectedItems.size})` : 'Excluir Selecionados'}
-           </button>
+           <div className="flex gap-2">
+              <button 
+                onClick={handleExportTxt}
+                className="flex items-center gap-2 bg-slate-700 hover:bg-slate-800 text-white font-bold px-4 py-2 rounded-lg transition-colors text-sm shadow-sm"
+              >
+                <span className="material-symbols-outlined text-[18px]">text_snippet</span>
+                Exportar ({selectedItems.size})
+              </button>
+
+              {userProfile?.role === 'admin' && (
+                <button
+                  onClick={handleBulkDelete}
+                  className="flex items-center gap-2 bg-red-500 hover:bg-red-600 text-white font-bold px-4 py-2 rounded-lg transition-colors text-sm shadow-sm"
+                >
+                  <span className="material-symbols-outlined text-[18px]">delete</span>
+                  Excluir ({selectedItems.size})
+                </button>
+              )}
+           </div>
         </div>
       )}
 

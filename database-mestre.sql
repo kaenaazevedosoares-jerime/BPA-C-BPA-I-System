@@ -68,8 +68,19 @@ CREATE TABLE IF NOT EXISTS public.patients (
   number TEXT,
   phone TEXT,
   email TEXT,
+  cod_municipio VARCHAR(6), -- Novo campo BPA-I
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- Atualização Tabela Pacientes (Idempotente)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='patients' AND column_name='cod_municipio') THEN
+        ALTER TABLE public.patients ADD COLUMN cod_municipio VARCHAR(6);
+        -- Popula registros existentes com o padrão solicitado (Anajás)
+        UPDATE public.patients SET cod_municipio = '150070' WHERE cod_municipio IS NULL;
+    END IF;
+END $$;
 
 -- 2.3 ESTABELECIMENTOS
 CREATE TABLE IF NOT EXISTS public.establishments (

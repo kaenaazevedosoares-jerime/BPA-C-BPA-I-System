@@ -22,6 +22,7 @@ interface Patient {
   number: string;
   phone: string;
   email: string;
+  cod_municipio?: string;
 }
 
 interface PatientRegistrationProps {
@@ -71,6 +72,7 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
     ethnicity: '',
     zip_code: '',
     city: '',
+    cod_municipio: '', // Novo campo
     state: '', // Mantido para UX (ViaCEP)
     neighborhood: '',
     street_code: '',
@@ -207,6 +209,9 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
     } else if (field === 'cns') {
       // Allow only numbers
       newValue = newValue.replace(/\D/g, '');
+    } else if (field === 'number') {
+      // Allow only numbers
+      newValue = newValue.replace(/\D/g, '');
     }
 
     setFormData(prev => ({ ...prev, [field]: newValue }));
@@ -214,6 +219,15 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
     // Auto-CEP Logic
     if (field === 'zip_code' && newValue.replace(/\D/g, '').length === 8) {
       handleCepLookup(newValue.replace(/\D/g, ''));
+    }
+
+    // Auto-fill Cod Municipio based on City Name
+    if (field === 'city') {
+      const normalizedCity = newValue.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      if (normalizedCity.includes('anajas')) {
+         setFormData(prev => ({ ...prev, [field]: newValue, cod_municipio: '150070' }));
+         return;
+      }
     }
   };
 
@@ -244,6 +258,7 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
         setFormData(prev => ({
           ...prev,
           city: data.localidade,
+          cod_municipio: data.ibge || (data.localidade.toLowerCase().includes('anajas') ? '150070' : prev.cod_municipio),
           state: data.uf, // Preenche visualmente
           neighborhood: data.bairro || prev.neighborhood,
           street: data.logradouro || prev.street
@@ -329,6 +344,11 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
       return alert('O telefone deve conter DDD + 9 dígitos (total 11 números).');
     }
 
+    // Number Validation (At least 2 digits)
+    if (formData.number.length < 2) {
+      return alert('O campo Número deve conter no mínimo 2 dígitos (ex: 01, 10). Se o endereço não tiver número, digite "00".');
+    }
+
     // CNS/CPF Validation
     const cnsDigits = formData.cns.replace(/\D/g, '');
     if (cnsDigits.length !== 11 && cnsDigits.length !== 15) {
@@ -355,7 +375,8 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
       street: formatTitleCase(formData.street) || null,
       number: formData.number || null,
       phone: formData.phone || null,
-      email: formData.email?.toLowerCase() || null
+      email: formData.email?.toLowerCase() || null,
+      cod_municipio: formData.cod_municipio || null
       // state e complement removidos
     };
 
@@ -396,6 +417,7 @@ const PatientRegistration: React.FC<PatientRegistrationProps> = ({ onCancel, onS
       ...patient,
       birth_date: patient.birth_date || '',
       cns: patient.cns || '',
+      cod_municipio: patient.cod_municipio || '',
       state: '', // Não vem do banco
       complement: '' // Não vem do banco
     });
