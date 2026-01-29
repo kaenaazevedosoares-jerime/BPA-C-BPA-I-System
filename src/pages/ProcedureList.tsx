@@ -215,6 +215,18 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
   const [filterSia, setFilterSia] = useState<'all' | 'processed' | 'pending'>('all');
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
+  const [filterMonth, setFilterMonth] = useState('');
+
+  const monthsPT = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  const recentFilterMonths = React.useMemo(() => {
+    const res: string[] = [];
+    const now = new Date();
+    for (let i = 0; i < 4; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      res.push(`${monthsPT[d.getMonth()]} / ${d.getFullYear()}`);
+    }
+    return res;
+  }, []);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
   // WhatsApp Modal State
@@ -252,7 +264,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
 
   useEffect(() => {
     const searchProfs = async () => {
-      if (profSearchTerm.length < 2) {
+      if (profSearchTerm.trim().length < 3) {
         setProfSearchResults([]);
         return;
       }
@@ -261,12 +273,13 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         .from('profissionais')
         .select('*, establishments(name, cnes)')
         .or(`nome.ilike.%${profSearchTerm}%,sus.ilike.%${profSearchTerm}%`)
-        .limit(5);
+        .order('nome')
+        .limit(10);
 
       if (data) setProfSearchResults(data);
     };
 
-    const timeoutId = setTimeout(searchProfs, 300);
+    const timeoutId = setTimeout(searchProfs, 400);
     return () => clearTimeout(timeoutId);
   }, [profSearchTerm]);
 
@@ -604,22 +617,27 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
     }
   };
 
-  const checkDateInRange = (item: ProcedureItem, logRejection = false) => {
-    // If no date range is set, everything passes
+  const checkDateInRange = (item: ProcedureItem) => {
+    // 1. Month Filter Check (Higher priority or combined)
+    if (filterMonth) {
+      const itemDate = item.rawDateSia || getEffectiveDate(item);
+      if (!itemDate) return false;
+
+      const [mName, yStr] = filterMonth.split(' / ');
+      const mIdx = monthsPT.indexOf(mName);
+      const [iy, im, id] = itemDate.split('-').map(Number);
+
+      if (iy !== Number(yStr) || (im - 1) !== mIdx) return false;
+    }
+
+    // 2. Date Range Check
     if (!dateStart && !dateEnd) return true;
 
     // --- SIA Date Priority Logic ---
-    // If SIA is processed and we are filtering for processed items (or implicitly viewing them),
-    // we should prioritize the SIA Date for filtering if available.
-    // However, the requirement says: "ao usuar o filtro do intervalo de datas, filtre com base no data do do processa,ento sia se o mesmo estiver acionado."
-    // This implies that IF SIA filter is ON ('processed'), we use SIA Date.
-
     let dateToCompare = item.rawDate; // Default fallback: Service Date
-    let dateSource = 'Service';
 
     if (filterSia === 'processed' && item.rawDateSia) {
       dateToCompare = item.rawDateSia;
-      dateSource = 'SIA Processing';
     } else {
       // Standard Logic (Status Based)
       const currentStatus = item.status.trim();
@@ -627,60 +645,56 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
       if (currentStatus === 'Finalizado' || currentStatus === 'Concluído') {
         if (item.rawDateDelivery) {
           dateToCompare = item.rawDateDelivery;
-          dateSource = 'Delivery';
         } else {
-          // Fallback explicitly to Service Date if Delivery is missing
           dateToCompare = item.rawDate;
-          dateSource = 'Fallback Service';
         }
       } else if (currentStatus === 'Agendado Entrega') {
-        if (item.dateScheduling) {
-          // Need to convert dd/mm/yyyy back to yyyy-mm-dd for comparison if raw is not available
-          // But we have dateScheduling string. Let's try to use a raw prop if added, or parse.
-          // Adding rawDateScheduling to items would be cleaner, but let's parse for now if needed.
-          // Wait, items map has `dateScheduling` formatted.
-          // Let's assume we add `rawDateScheduling` to item interface for consistency.
-          // UPDATE: Added rawDateScheduling logic below in mapping.
-          // For now, let's use the dateScheduling string parsing if raw missing.
-
-          // Actually, let's look at the mapping logic. We can add rawDateScheduling there.
-          // Assuming rawDateScheduling is available on item (we will add it).
-          if ((item as any).rawDateScheduling) {
-            dateToCompare = (item as any).rawDateScheduling;
-            dateSource = 'Scheduling';
-          }
+        if ((item as any).rawDateScheduling) {
+          dateToCompare = (item as any).rawDateScheduling;
         }
       } else if (currentStatus === 'Cancelado') {
         if (item.rawDateCancellation) {
           dateToCompare = item.rawDateCancellation;
-          dateSource = 'Cancellation';
         } else {
           dateToCompare = item.rawDate;
-          dateSource = 'Fallback Service';
         }
       } else if (currentStatus === 'CNS Inválido' || currentStatus === 'SUS Inválido') {
         dateToCompare = item.rawDate;
-        dateSource = 'Service (Invalid CNS)';
       }
     }
 
-    // 2. If absolutely no date found, it fails the range filter
-    if (!dateToCompare) {
-      if (logRejection) console.log(`Rejected ${item.name} (${item.status}): No Date`);
-      return false;
-    }
+    // If absolutely no date found, it fails the range filter
+    if (!dateToCompare) return false;
 
-    // 3. Compare dates (YYYY-MM-DD string comparison)
-    if (dateStart && dateToCompare < dateStart) {
-      if (logRejection) console.log(`Rejected ${item.name}: ${dateToCompare} < ${dateStart} (${dateSource})`);
-      return false;
-    }
-    if (dateEnd && dateToCompare > dateEnd) {
-      if (logRejection) console.log(`Rejected ${item.name}: ${dateToCompare} > ${dateEnd} (${dateSource})`);
-      return false;
-    }
+    // Compare dates (YYYY-MM-DD string comparison)
+    if (dateStart && dateToCompare < dateStart) return false;
+    if (dateEnd && dateToCompare > dateEnd) return false;
 
     return true;
+  };
+
+  const getProcedureMonthCount = (m: string) => {
+    const [mName, yStr] = m.split(' / ');
+    const mIdx = monthsPT.indexOf(mName);
+
+    return items.filter(item => {
+      // 1. Core filters (Status, SIA, Search)
+      if (!checkStatusFilter(item)) return false;
+      if (!checkSiaFilter(item)) return false;
+      if (!checkSearchFilter(item)) return false;
+
+      // 2. Month match
+      const itemDate = item.rawDateSia || getEffectiveDate(item);
+      if (!itemDate) return false;
+      const [iy, im, id] = itemDate.split('-').map(Number);
+      return iy === Number(yStr) && (im - 1) === mIdx;
+    }).length;
+  };
+
+  const getTotalFilteredCount = () => {
+    return items.filter(item => {
+      return checkStatusFilter(item) && checkSiaFilter(item) && checkSearchFilter(item);
+    }).length;
   };
 
   // Re-run filter and capture debug logs when dependencies change
@@ -1033,6 +1047,22 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
           )}
         </div>
 
+        {/* Month Filter Dropdown */}
+        <div className="relative w-full md:w-56 shrink-0">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-slate-400 text-[18px]">calendar_month</span>
+          <select
+            value={filterMonth}
+            onChange={(e) => setFilterMonth(e.target.value)}
+            className="w-full bg-white dark:bg-surface-dark border border-slate-200 dark:border-slate-800 rounded-xl py-2 pl-9 pr-8 text-sm focus:ring-2 focus:ring-primary appearance-none text-slate-600 dark:text-slate-300 transition-all font-semibold"
+          >
+            <option value="">Filtrar Mês ({getTotalFilteredCount()})</option>
+            {recentFilterMonths.map(m => (
+              <option key={m} value={m}>{m} ({getProcedureMonthCount(m)})</option>
+            ))}
+          </select>
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 material-symbols-outlined text-slate-400 pointer-events-none">expand_more</span>
+        </div>
+
         <div className="flex flex-wrap gap-2 items-center">
           {/* Multi-Select Status Dropdown */}
           <div className="relative grow sm:grow-0">
@@ -1041,10 +1071,10 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
               onChange={setFilter}
               options={['Todos', 'Em Produção', 'Consulta/Molde', 'Agendado Entrega', 'Finalizado', 'Cancelado', 'CNS Inválido']}
               getCount={(status: string) => {
-                if (status === 'Todos') return items.length;
-                // Contagem agrupada para o filtro "Em Produção"
-                if (status === 'Em Produção') return items.filter(i => ['Em Produção', 'Em Atendimento', 'Consulta/Molde', 'Agendado Entrega'].includes(i.status)).length;
-                return items.filter(i => i.status === status).length;
+                const baseFiltered = items.filter(i => checkSiaFilter(i) && checkSearchFilter(i) && checkDateInRange(i));
+                if (status === 'Todos') return baseFiltered.length;
+                if (status === 'Em Produção') return baseFiltered.filter(i => ['Em Produção', 'Em Atendimento', 'Consulta/Molde', 'Agendado Entrega'].includes(i.status)).length;
+                return baseFiltered.filter(i => i.status === status).length;
               }}
             />
           </div>
@@ -1065,6 +1095,24 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
               </span>
             )}
           </button>
+
+          {(searchTerm || filterMonth || dateStart || dateEnd || filter.some(f => f !== 'Todos') || filterSia !== 'all') && (
+            <button
+              onClick={() => {
+                setSearchTerm('');
+                setFilterMonth('');
+                setDateStart('');
+                setDateEnd('');
+                setFilter(['Todos']);
+                setFilterSia('all');
+                setSelectedProfessional(null);
+              }}
+              className="px-4 py-2 text-xs font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-colors flex items-center gap-1"
+            >
+              <span className="material-symbols-outlined text-[16px]">filter_alt_off</span>
+              Limpar Tudo
+            </button>
+          )}
         </div>
       </div>
 
