@@ -414,6 +414,14 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
 
     // Standard update for other statuses
     try {
+      // Check if locked
+      const item = items.find(i => i.id === id);
+      const isLocked = item?.sia_processed && userProfile?.role !== 'admin';
+      if (isLocked) {
+        alert('Este procedimento já foi processado no SIA e não pode ser alterado por usuários comuns.');
+        return;
+      }
+
       const { error } = await supabase.from('procedure_production').update({ status: newStatus }).eq('id', id);
       if (error) throw error;
       setItems(prev => prev.map(item => {
@@ -1296,6 +1304,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                   <StatusDropdown
                     currentStatus={item.status}
                     statusColor={item.statusColor}
+                    disabled={item.sia_processed && userProfile?.role !== 'admin'}
                     onChange={(newStatus) => handleStatusChange(item.id, newStatus)}
                   />
                 </div>
@@ -1348,7 +1357,16 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                   <DetailField label="Descrição do Procedimento" value={item.proc} />
                 </div>
                 <div className="flex gap-2 pt-2 mt-4 border-t border-slate-200 dark:border-slate-700">
-                  <button onClick={() => onEdit(item.id)} className="flex-1 py-2.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-sm font-bold hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors flex items-center justify-center gap-2 mt-2">
+                  <button
+                    onClick={() => {
+                      if (item.sia_processed && userProfile?.role !== 'admin') {
+                        alert('Este procedimento já foi processado no SIA e não pode ser editado.');
+                        return;
+                      }
+                      onEdit(item.id);
+                    }}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2 mt-2 ${(item.sia_processed && userProfile?.role !== 'admin') ? 'bg-slate-100 dark:bg-slate-800/50 text-slate-400 cursor-not-allowed' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-700'}`}
+                  >
                     <span className="material-symbols-outlined text-[18px]">edit</span> Editar
                   </button>
                   {userProfile?.role === 'admin' && (
@@ -1525,16 +1543,21 @@ const DetailField = ({ label, value, isPrimary, isAnimated }: any) => {
   );
 };
 
-const StatusDropdown = ({ currentStatus, statusColor, onChange }: any) => {
+const StatusDropdown = ({ currentStatus, statusColor, onChange, disabled }: any) => {
   const [isOpen, setIsOpen] = useState(false);
   const statusOptions = ['Agendado', 'Em Atendimento', 'Consulta/Molde', 'Agendado Entrega', 'Finalizado', 'Cancelado', 'CNS Inválido'];
   return (
     <div className="relative inline-block">
-      <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded px-1.5 py-0.5 transition-colors">
+      <button
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        disabled={disabled}
+        className={`flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors ${disabled ? 'opacity-50 cursor-not-allowed hover:bg-transparent' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+        title={disabled ? "Processado no SIA (Somente Admin pode alterar)" : "Alterar Status"}
+      >
         <span className={`text-[10px] font-bold uppercase ${statusColor}`}>{currentStatus}</span>
-        <span className="material-symbols-outlined text-[14px] text-slate-400">arrow_drop_down</span>
+        {!disabled && <span className="material-symbols-outlined text-[14px] text-slate-400">arrow_drop_down</span>}
       </button>
-      {isOpen && (
+      {isOpen && !disabled && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
           <div className="absolute top-full left-0 mt-1 w-32 bg-white dark:bg-surface-dark border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl z-20 overflow-hidden">
