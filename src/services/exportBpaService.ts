@@ -17,18 +17,28 @@ interface PatientExportData {
   phone: string;
 }
 
+// Helper to remove accents and special characters
+const removeAccents = (str: string): string => {
+  if (!str) return '';
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Remove accents
+    .replace(/[^a-zA-Z0-9\s]/g, "") // Remove any non-alphanumeric except spaces
+    .toUpperCase(); // Standard for many TXT integrations
+};
+
 // Helper para alinhar à direita (preencher com espaços à esquerda)
 const alignRight = (value: string, length: number, padChar: string = ' '): string => {
-  // Remove quebras de linha e tabulações, normaliza espaços
-  const str = value ? String(value).replace(/[\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim() : '';
-  return str.slice(0, length).padStart(length, padChar);
+  // Remove quebras de linha e tabulações, normaliza espaços e remove acentos
+  const sanitized = value ? removeAccents(String(value)).replace(/[\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim() : '';
+  return sanitized.slice(0, length).padStart(length, padChar);
 };
 
 // Helper para alinhar à esquerda (preencher com espaços à direita)
 const alignLeft = (value: string, length: number, padChar: string = ' '): string => {
-  // Remove quebras de linha e tabulações, normaliza espaços
-  const str = value ? String(value).replace(/[\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim() : '';
-  return str.slice(0, length).padEnd(length, padChar);
+  // Remove quebras de linha e tabulações, normaliza espaços e remove acentos
+  const sanitized = value ? removeAccents(String(value)).replace(/[\n\r\t]/g, ' ').replace(/\s+/g, ' ').trim() : '';
+  return sanitized.slice(0, length).padEnd(length, padChar);
 };
 
 // Mappers simples
@@ -49,7 +59,7 @@ const getRaceCode = (race: string): string => {
 
 const getNationalityCode = (nat: string): string => {
   if (nat?.toLowerCase().includes('brasileira') || nat?.toLowerCase().includes('brasil')) return '010';
-  return ''; 
+  return '';
 };
 
 const formatDate = (dateStr: string): string => {
@@ -122,5 +132,5 @@ export const generateBpaITxt = (patients: PatientExportData[]) => {
 
   // Trigger Download
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-  saveAs(blob, `BPA_EXPORT_${new Date().toISOString().slice(0,10)}.txt`);
+  saveAs(blob, `BPA_EXPORT_${new Date().toISOString().slice(0, 10)}.txt`);
 };
