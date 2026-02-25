@@ -13,12 +13,18 @@ interface ProcedureItem {
   name: string;
   category?: string;
   created_at: string;
+  cbos?: { cbo: { code: string; occupation: string } }[];
 }
 
 const ProcedureCatalog: React.FC<ProcedureCatalogProps> = ({ onCancel, onSave }) => {
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
+  const [selectedCbos, setSelectedCbos] = useState<{ id: string; code: string; occupation: string }[]>([]);
+  const [cboSearchTerm, setCboSearchTerm] = useState('');
+  const [cboSuggestions, setCboSuggestions] = useState<{ id: string; code: string; occupation: string }[]>([]);
+  const [cboSearchTimer, setCboSearchTimer] = useState<any>(null);
+
   const [categorySuggestions, setCategorySuggestions] = useState<string[]>([]);
   const [catSearchTimer, setCatSearchTimer] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -37,7 +43,15 @@ const ProcedureCatalog: React.FC<ProcedureCatalogProps> = ({ onCancel, onSave })
     setFetching(true);
     let query = supabase
       .from('procedures_catalog')
-      .select('*')
+      .select(`
+        *,
+        cbos:procedure_cbos (
+          cbo:cbos (
+            code,
+            occupation
+          )
+        )
+      `)
       .order('created_at', { ascending: false });
 
     if (searchTerm) query = query.or(`code.ilike.%${searchTerm}%,name.ilike.%${searchTerm}%`);
@@ -57,40 +71,77 @@ const ProcedureCatalog: React.FC<ProcedureCatalogProps> = ({ onCancel, onSave })
     fetchProcedures();
   }, [fetchProcedures]);
 
+  const searchCbos = async (term: string) => {
+    if (!term || term.length < 2) {
+      setCboSuggestions([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .rpc('search_cbos', { search_term: term })
+      .limit(10);
+
+    if (error) {
+      console.error('Erro ao buscar CBOs:', error);
+    } else {
+      setCboSuggestions(data || []);
+    }
+  };
+
   const handleSave = async () => {
-    if (!code || !name) return alert('Preencha todos os campos');
+    if (!code || !name) return alert('Preencha todos os campos obrigatórios');
     
     setLoading(true);
+    let procedureId = editingId;
+
     if (editingId) {
       const { error } = await supabase
         .from('procedures_catalog')
         .update({ code, name: formatTitleCase(name), category: formatTitleCase(category) })
         .eq('id', editingId);
-      setLoading(false);
+      
       if (error) {
         alert('Erro ao atualizar: ' + error.message);
-      } else {
-        setEditingId(null);
-        setCode(''); setName(''); setCategory('');
-        fetchProcedures();
+        setLoading(false);
+        return;
       }
-      return;
+    } else {
+      const { data, error } = await supabase
+        .from('procedures_catalog')
+        .insert([{ code, name: formatTitleCase(name), category: formatTitleCase(category) }])
+        .select()
+        .single();
+
+      if (error) {
+        alert('Erro ao salvar: ' + error.message);
+        setLoading(false);
+        return;
+      }
+      procedureId = data.id;
     }
 
-    const { error } = await supabase
-      .from('procedures_catalog')
-      .insert([{ code, name: formatTitleCase(name), category: formatTitleCase(category) }]);
+    // Update CBOs
+    if (procedureId) {
+      // First delete existing links
+      await supabase.from('procedure_cbos').delete().eq('procedure_id', procedureId);
+      
+      // Then insert new ones
+      if (selectedCbos.length > 0) {
+        const { error: cboError } = await supabase
+          .from('procedure_cbos')
+          .insert(selectedCbos.map(cbo => ({
+            procedure_id: procedureId,
+            cbo_id: cbo.id
+          })));
+        
+        if (cboError) console.error('Erro ao vincular CBOs:', cboError);
+      }
+    }
 
     setLoading(false);
-    if (error) {
-      alert('Erro ao salvar: ' + error.message);
-    } else {
-      setCode('');
-      setName('');
-      setCategory('');
-      fetchProcedures(); // Atualiza a lista
-      // Opcional: onSave(); // Se desejar fechar a tela após salvar
-    }
+    setEditingId(null);
+    setCode(''); setName(''); setCategory(''); setSelectedCbos([]);
+    fetchProcedures();
   };
 
   const handleDelete = async (id: string) => {
@@ -113,8 +164,19 @@ const ProcedureCatalog: React.FC<ProcedureCatalogProps> = ({ onCancel, onSave })
     setCode(item.code);
     setName(item.name);
     setCategory(item.category || '');
+    // Map loaded CBOs to selection format
+    const cbos = item.cbos?.map((pc: any) => ({
+      id: pc.cbo.id, // Assuming join returns this structure, might need adjustment based on real response
+      code: pc.cbo.code,
+      occupation: pc.cbo.occupation
+    })) || [];
+    setSelectedCbos(cbos);
+    
     setCategorySuggestions([]);
     setShowForm(true);
+    
+    // Scroll to form
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleCancelForm = () => {
@@ -122,6 +184,7 @@ const ProcedureCatalog: React.FC<ProcedureCatalogProps> = ({ onCancel, onSave })
     setCode('');
     setName('');
     setCategory('');
+    setSelectedCbos([]);
     setShowForm(false);
   };
 
@@ -162,7 +225,7 @@ const ProcedureCatalog: React.FC<ProcedureCatalogProps> = ({ onCancel, onSave })
         <div className="flex justify-end animate-fade-in">
           <button
             onClick={() => setShowForm(true)}
-            className="h-12 px-6 rounded-xl bg-primary text-white font-bold shadow-lg shadow-primary/30 hover:bg-primary-dark transition-all active:scale-95 flex items-center gap-2"
+            className="w-full md:w-auto h-12 px-6 rounded-xl bg-primary text-white font-bold shadow-lg shadow-primary/30 hover:bg-primary-dark transition-all active:scale-95 flex items-center justify-center gap-2"
           >
             <span className="material-symbols-outlined">add</span>
             Novo Cadastro
@@ -240,7 +303,64 @@ const ProcedureCatalog: React.FC<ProcedureCatalogProps> = ({ onCancel, onSave })
               </div>
             </div>
 
-            <div className="md:col-span-4 flex items-end gap-2">
+            <div className="md:col-span-12 flex flex-col gap-2 group">
+              <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">Profissionais Competentes (CBOs)</label>
+              <div className="relative">
+                <input 
+                  type="text" 
+                  value={cboSearchTerm}
+                  onChange={(e) => {
+                    setCboSearchTerm(e.target.value);
+                    if (cboSearchTimer) clearTimeout(cboSearchTimer);
+                    const t = setTimeout(() => searchCbos(e.target.value), 300);
+                    setCboSearchTimer(t);
+                  }}
+                  placeholder="Buscar CBO por código ou ocupação..." 
+                  className="w-full h-12 bg-slate-50 dark:bg-background-dark/30 border-0 border-b-2 border-slate-200 dark:border-slate-700 focus:border-primary focus:ring-0 rounded-t-lg px-4 pr-12 text-slate-900 dark:text-white transition-all text-sm font-medium"
+                />
+                <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-primary/70 text-[20px]">work</span>
+                
+                {cboSuggestions.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg z-20 max-h-56 overflow-y-auto">
+                    {cboSuggestions.map((cbo) => (
+                      <button
+                        key={cbo.id}
+                        onClick={() => {
+                          if (!selectedCbos.some(sc => sc.id === cbo.id)) {
+                            setSelectedCbos([...selectedCbos, cbo]);
+                          }
+                          setCboSearchTerm('');
+                          setCboSuggestions([]);
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-sm border-b border-slate-100 dark:border-slate-700 last:border-0"
+                      >
+                        <span className="font-mono font-bold text-primary mr-2">{cbo.code}</span>
+                        <span className="text-slate-700 dark:text-slate-300">{cbo.occupation}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {selectedCbos.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {selectedCbos.map((cbo) => (
+                    <div key={cbo.id} className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                      <span className="font-mono font-bold text-xs text-primary">{cbo.code}</span>
+                      <span className="text-xs text-slate-600 dark:text-slate-400 max-w-[200px] truncate">{cbo.occupation}</span>
+                      <button 
+                        onClick={() => setSelectedCbos(selectedCbos.filter(sc => sc.id !== cbo.id))}
+                        className="text-slate-400 hover:text-red-500 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">close</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="md:col-span-12 flex items-end gap-2 justify-end pt-4 border-t border-slate-100 dark:border-slate-800">
               <button 
                 onClick={handleCancelForm}
                 className="w-12 h-12 rounded-xl border-2 border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold transition-all flex items-center justify-center flex-shrink-0"
@@ -362,64 +482,88 @@ const ProcedureCatalog: React.FC<ProcedureCatalogProps> = ({ onCancel, onSave })
         </h3>
 
         <div className="bg-white dark:bg-surface-dark rounded-3xl overflow-hidden shadow-sm border border-slate-200 dark:border-slate-800">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-background-dark/50 border-b border-slate-100 dark:border-slate-800">
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Código</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Nome do Procedimento</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoria</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {fetching ? (
-                  <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center">
-                      <span className="material-symbols-outlined animate-spin text-primary text-3xl">progress_activity</span>
-                      <p className="mt-2 text-sm text-slate-500">Carregando catálogo...</p>
-                    </td>
-                  </tr>
-                ) : procedures.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center">
-                      <span className="material-symbols-outlined text-slate-300 text-4xl mb-2">find_in_page</span>
-                      <p className="text-sm text-slate-500 font-medium">Nenhum procedimento encontrado.</p>
-                    </td>
-                  </tr>
-                ) : (
-                  procedures.map((proc) => (
-                    <tr key={proc.id} className="group hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                      <td className="px-6 py-4">
-                        <span className="text-sm font-mono font-bold text-primary bg-primary/5 px-2 py-1 rounded-md">{proc.code}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{proc.name}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-xs text-slate-500 dark:text-slate-400">{proc.category || '-'}</span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button 
-                          onClick={() => handleEdit(proc)}
-                          className="p-2 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all mr-1"
-                          title="Editar"
-                        >
-                          <span className="material-symbols-outlined text-[20px]">edit</span>
-                        </button>
-                        <button 
-                          onClick={() => handleDelete(proc.id)}
-                          className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
-                          title="Excluir"
-                        >
-                          <span className="material-symbols-outlined text-[20px]">delete</span>
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          {/* Header - Desktop Only */}
+          <div className="hidden md:grid grid-cols-[120px_2fr_1fr_1fr_100px] gap-4 px-6 py-4 bg-slate-50 dark:bg-background-dark/50 border-b border-slate-100 dark:border-slate-800">
+            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Código</div>
+            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nome do Procedimento</div>
+            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Categoria</div>
+            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">CBOs</div>
+            <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</div>
+          </div>
+
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {fetching ? (
+              <div className="px-6 py-12 text-center">
+                <span className="material-symbols-outlined animate-spin text-primary text-3xl">progress_activity</span>
+                <p className="mt-2 text-sm text-slate-500">Carregando catálogo...</p>
+              </div>
+            ) : procedures.length === 0 ? (
+              <div className="px-6 py-12 text-center">
+                <span className="material-symbols-outlined text-slate-300 text-4xl mb-2">find_in_page</span>
+                <p className="text-sm text-slate-500 font-medium">Nenhum procedimento encontrado.</p>
+              </div>
+            ) : (
+              procedures.map((proc) => (
+                <div key={proc.id} className="group flex flex-col md:grid md:grid-cols-[120px_2fr_1fr_1fr_100px] gap-3 md:gap-4 px-6 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                  
+                  {/* Linha 1 Mobile: Código e Nome */}
+                  <div className="flex flex-col md:contents">
+                    <div className="flex items-center justify-between md:block mb-2 md:mb-0">
+                       <span className="md:hidden text-[10px] font-black text-slate-400 uppercase tracking-widest">Código</span>
+                       <span className="text-sm font-mono font-bold text-primary bg-primary/5 px-2 py-1 rounded-md inline-block">{proc.code}</span>
+                    </div>
+                    
+                    <div className="md:col-span-1">
+                       <span className="text-sm font-medium text-slate-700 dark:text-slate-200 block mb-2 md:mb-0">{proc.name}</span>
+                       {/* Categoria visível logo abaixo do nome no mobile */}
+                       <div className="md:hidden flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-2">
+                          <span className="material-symbols-outlined text-[14px]">category</span>
+                          {proc.category || 'Sem categoria'}
+                       </div>
+                    </div>
+                  </div>
+
+                  {/* Coluna Categoria (Desktop) */}
+                  <div className="hidden md:flex items-center">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">{proc.category || '-'}</span>
+                  </div>
+
+                  {/* CBOs */}
+                  <div className="flex flex-col md:justify-center">
+                    <span className="md:hidden text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">CBOs Competentes</span>
+                    <div className="flex flex-wrap gap-1">
+                      {proc.cbos && proc.cbos.length > 0 ? (
+                        proc.cbos.map((pc: any, idx) => (
+                          <span key={idx} className="text-[10px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700" title={pc.cbo.occupation}>
+                            {pc.cbo.code}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic">Sem CBOs</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Ações */}
+                  <div className="flex items-center justify-end gap-2 mt-2 md:mt-0 border-t md:border-t-0 pt-3 md:pt-0 border-slate-100 dark:border-slate-800">
+                    <button 
+                      onClick={() => handleEdit(proc)}
+                      className="p-2 text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                      title="Editar"
+                    >
+                      <span className="material-symbols-outlined text-[20px]">edit</span>
+                    </button>
+                    <button 
+                      onClick={() => handleDelete(proc.id)}
+                      className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+                      title="Excluir"
+                    >
+                      <span className="material-symbols-outlined text-[20px]">delete</span>
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
