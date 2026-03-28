@@ -33,7 +33,7 @@ export interface ProductionItem {
   id: string;
   patientName: string;
   procedure: string;
-  status: 'Em Análise' | 'Concluído' | 'Em Produção' | 'Agendado';
+  status: 'Em Análise' | 'Finalizado' | 'Em Produção' | 'Agendado';
   timeLabel: string;
   icon: string;
   colorClass: string;

@@ -319,14 +319,14 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         const p = item.patients || {};
         const patientName = p.name || 'Desconhecido';
         const procName = procedureMap.get(item.procedure_code) || item.procedure_code;
-        const status = (item.status || 'Agendado').trim(); // Ensure trim here
+        const rawStatus = (item.status || 'Agendado').trim();
+        const status = rawStatus === 'Concluído' ? 'Finalizado' : rawStatus;
 
         let statusColor = 'text-slate-500';
         if (status === 'Em Produção' || status === 'Em Atendimento' || status === 'Consulta/Molde') statusColor = 'text-primary';
-        else if (status === 'Finalizado' || status === 'Concluído') statusColor = 'text-emerald-500';
+        else if (status === 'Finalizado') statusColor = 'text-emerald-500';
         else if (status === 'Agendado' || status === 'Agendado Entrega') statusColor = 'text-yellow-500';
         else if (status === 'Cancelado') statusColor = 'text-red-500';
-        else if (status === 'Agendado Entrega') statusColor = 'text-purple-500';
         else if (status === 'CNS Inválido') statusColor = 'text-orange-600';
 
         // Helper to format date strictly from YYYY-MM-DD to DD/MM/YYYY without timezone issues
@@ -428,7 +428,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         if (item.id === id) {
           let statusColor = 'text-slate-500';
           if (newStatus === 'Em Produção' || newStatus === 'Em Atendimento' || newStatus === 'Consulta/Molde') statusColor = 'text-primary';
-          else if (newStatus === 'Finalizado' || newStatus === 'Concluído') statusColor = 'text-emerald-500';
+          else if (newStatus === 'Finalizado') statusColor = 'text-emerald-500';
           else if (newStatus === 'Agendado' || newStatus === 'Agendado Entrega') statusColor = 'text-yellow-500';
           else if (newStatus === 'Cancelado') statusColor = 'text-red-500';
           else if (newStatus === 'CNS Inválido') statusColor = 'text-orange-600';
@@ -481,7 +481,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
         if (item.id === id) {
           let statusColor = 'text-slate-500';
           if (newStatus === 'Em Produção' || newStatus === 'Em Atendimento' || newStatus === 'Consulta/Molde') statusColor = 'text-primary';
-          else if (newStatus === 'Finalizado' || newStatus === 'Concluído') statusColor = 'text-emerald-500';
+          else if (newStatus === 'Finalizado') statusColor = 'text-emerald-500';
           else if (newStatus === 'Agendado' || newStatus === 'Agendado Entrega') statusColor = 'text-yellow-500';
           else if (newStatus === 'Cancelado') statusColor = 'text-red-500';
           else if (newStatus === 'CNS Inválido') statusColor = 'text-orange-600';
@@ -587,7 +587,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
 
     try {
       const { error } = await supabase.from('procedure_production')
-        .update({ sia_processed: true, date_sia: date })
+        .update({ sia_processed: true, date_sia: date, status: 'Finalizado' })
         .in('id', idsToUpdate);
 
       if (error) throw error;
@@ -606,7 +606,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
 
       setItems(prev => prev.map(item =>
         idsToUpdate.includes(item.id)
-          ? { ...item, sia_processed: true, dateSia: formattedDate, rawDateSia: date }
+          ? { ...item, sia_processed: true, dateSia: formattedDate, rawDateSia: date, status: 'Finalizado', statusColor: 'text-emerald-500' }
           : item
       ));
 
@@ -650,7 +650,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
       // Standard Logic (Status Based)
       const currentStatus = item.status.trim();
 
-      if (currentStatus === 'Finalizado' || currentStatus === 'Concluído') {
+      if (currentStatus === 'Finalizado') {
         if (item.rawDateDelivery) {
           dateToCompare = item.rawDateDelivery;
         } else {
@@ -712,7 +712,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
 
     items.forEach(item => {
       // Only log "Finalizado" items that are rejected to avoid noise
-      if (item.status === 'Finalizado' || item.status === 'Concluído') {
+      if (item.status === 'Finalizado') {
         const passed = checkDateInRange(item, false);
         if (!passed) {
           // Re-run logic to get details
@@ -766,7 +766,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
 
   const getEffectiveDate = (item: ProcedureItem) => {
     const s = item.status.trim();
-    if (s === 'Finalizado' || s === 'Concluído') return item.rawDateDelivery || item.rawDate;
+    if (s === 'Finalizado') return item.rawDateDelivery || item.rawDate;
     if (s === 'Cancelado') return item.rawDateCancellation || item.rawDate;
     if (s === 'Agendado Entrega') return item.rawDateScheduling || item.rawDate;
     return item.rawDate; // Default for Consulta/Molde etc
@@ -787,7 +787,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
     }
 
     // 2. If Status Filter is ONLY Finalizado or Cancelado -> Sort DESC (Recent -> Old)
-    const isHistorical = filter.some(f => ['Finalizado', 'Concluído', 'Cancelado'].includes(f)) && !filter.includes('Todos');
+    const isHistorical = filter.some(f => ['Finalizado', 'Cancelado'].includes(f)) && !filter.includes('Todos');
     if (isHistorical) {
       const dateA = getEffectiveDate(a) || '';
       const dateB = getEffectiveDate(b) || '';
@@ -1228,7 +1228,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                       <span className="font-bold text-slate-400">{item.name.charAt(0)}</span>
                     </div>
                     <div className="absolute -bottom-1 -right-1 flex size-4 items-center justify-center rounded-full bg-surface-light dark:bg-surface-dark border-2 border-surface-light dark:border-surface-dark">
-                      <div className={`size-2 rounded-full ${item.status === 'Em Produção' ? 'bg-primary animate-pulse' : item.status === 'Concluído' ? 'bg-emerald-500' : 'bg-yellow-500'}`}></div>
+                      <div className={`size-2 rounded-full ${item.status === 'Em Produção' || item.status === 'Em Atendimento' || item.status === 'Consulta/Molde' ? 'bg-primary animate-pulse' : item.status === 'Finalizado' ? 'bg-emerald-500' : 'bg-yellow-500'}`}></div>
                     </div>
                   </div>
 
@@ -1249,15 +1249,28 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
                       <span className="text-[11px] font-mono font-medium">{item.cns}</span>
                       <span className="mx-1">•</span>
                       <span className="material-symbols-outlined text-[14px]">event</span>
-                      <span className="text-[11px] font-mono font-medium">
-                        {(item.status === 'Finalizado' || item.status === 'Concluído') && item.dateDelivery && item.dateDelivery !== 'N/A'
-                          ? item.dateDelivery
-                          : (item.status === 'Agendado Entrega' && item.dateScheduling && item.dateScheduling !== 'N/A')
-                            ? item.dateScheduling
-                            : (item.status === 'Cancelado' && item.dateCancellation && item.dateCancellation !== 'N/A')
-                              ? item.dateCancellation
-                              : item.date
-                        }
+                      <span className="text-[10px] font-bold uppercase tracking-tight flex items-center gap-1">
+                        {item.status === 'Finalizado' && item.dateDelivery && item.dateDelivery !== 'N/A' ? (
+                          <>
+                            <span className="text-emerald-500">Finalizado em</span>
+                            <span className="font-mono">{item.dateDelivery}</span>
+                          </>
+                        ) : item.status === 'Agendado Entrega' && item.dateScheduling && item.dateScheduling !== 'N/A' ? (
+                          <>
+                            <span className="text-yellow-500">Agendado p/</span>
+                            <span className="font-mono">{item.dateScheduling}</span>
+                          </>
+                        ) : item.status === 'Cancelado' && item.dateCancellation && item.dateCancellation !== 'N/A' ? (
+                          <>
+                            <span className="text-red-500">Cancelado em</span>
+                            <span className="font-mono">{item.dateCancellation}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-slate-400">Atendimento:</span>
+                            <span className="font-mono">{item.date}</span>
+                          </>
+                        )}
                       </span>
                     </div>
                   </div>
