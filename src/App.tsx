@@ -10,6 +10,7 @@ import ProcedureForm from './pages/ProcedureForm';
 import ProcedureList from './pages/ProcedureList';
 import BpaConsolidatedForm from './pages/BpaConsolidatedForm';
 import BpaProductionForm from './pages/BpaProductionForm';
+import RaasPage from './pages/RaasPage';
 import EstablishmentRegistration from './pages/EstablishmentRegistration';
 import ProcedureCatalog from './pages/ProcedureCatalog';
 import CboRegistration from './pages/CboRegistration';
@@ -18,7 +19,7 @@ import ProfissionalForm from './pages/ProfissionalForm';
 import PublicProfissionalRegistration from './pages/PublicProfissionalRegistration';
 import StreetTypeCatalog from './pages/StreetTypeCatalog';
 import Settings from './pages/Settings';
-import { supabase } from './lib/supabase';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
 
 const App: React.FC = () => {
   const [theme, setTheme] = useState<Theme>(() => {
@@ -85,6 +86,8 @@ const App: React.FC = () => {
 
       if (viewParam === 'public-professional-reg') {
         setCurrentView('public-professional-reg');
+      } else if (viewParam === 'raas') {
+        setCurrentView('raas');
       } else if (!session && currentView !== 'register') {
         setCurrentView('login');
       }
@@ -101,6 +104,8 @@ const App: React.FC = () => {
         setUserProfile(null);
         if (viewParam === 'public-professional-reg') {
           setCurrentView('public-professional-reg');
+        } else if (viewParam === 'raas') {
+          setCurrentView('raas');
         } else {
           setCurrentView('login');
         }
@@ -149,7 +154,7 @@ const App: React.FC = () => {
   };
 
   const renderView = () => {
-    if (!session && currentView !== 'register' && currentView !== 'login' && currentView !== 'public-professional-reg') {
+    if (!session && currentView !== 'register' && currentView !== 'login' && currentView !== 'public-professional-reg' && currentView !== 'raas') {
       return <Login onLogin={() => navigateTo('dashboard')} onGoToRegister={() => navigateTo('register')} />;
     }
 
@@ -177,6 +182,8 @@ const App: React.FC = () => {
         return <BpaConsolidatedForm onCancel={() => navigateTo('dashboard')} onSave={() => navigateTo('dashboard')} />;
       case 'bpa-production':
         return <BpaProductionForm onCancel={() => navigateTo('dashboard')} onSave={() => navigateTo('dashboard')} />;
+      case 'raas':
+        return <RaasPage onCancel={() => navigateTo('dashboard')} />;
       case 'procedure-list':
         return <ProcedureList onAddNew={() => navigateTo('procedure-form')} onEdit={handleEditProcedure} />;
       case 'establishment-reg':
@@ -206,6 +213,14 @@ const App: React.FC = () => {
   if (currentView === 'login' || currentView === 'register' || currentView === 'public-professional-reg') {
     return (
       <div className="min-h-screen">
+        {!isSupabaseConfigured && (
+          <div className="bg-amber-500/10 border-b border-amber-500/30 text-amber-600 dark:text-amber-400 px-4 py-2.5 text-xs sm:text-sm text-center flex items-center justify-center gap-2">
+            <span className="material-symbols-outlined text-base">warning</span>
+            <span>
+              <strong>Atenção:</strong> Variáveis de ambiente do Supabase não encontradas. Configure <code>VITE_SUPABASE_URL</code> e <code>VITE_SUPABASE_ANON_KEY</code> no arquivo <code>.env</code>.
+            </span>
+          </div>
+        )}
         <button 
           onClick={toggleTheme}
           className="fixed top-4 right-4 z-50 p-2 rounded-full bg-surface-light dark:bg-surface-dark shadow-md border border-slate-200 dark:border-slate-800"
@@ -220,32 +235,43 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar 
-        isOpen={isSidebarOpen} 
-        onClose={() => setIsSidebarOpen(false)} 
-        currentView={currentView}
-        onNavigate={navigateTo}
-        userProfile={userProfile}
-      />
-      
-      <div className="flex-1 flex flex-col min-w-0">
-        <Header 
-          theme={theme} 
-          onToggleTheme={toggleTheme} 
-          onOpenSidebar={() => setIsSidebarOpen(true)}
-          currentViewTitle={
-            currentView === 'dashboard' ? 'Visão Geral' : 
-            currentView === 'procedure-list' ? 'Lista Procedimento' :
-            currentView === 'patient-reg' ? 'REGISTRO PACIENTE' :
-            currentView.charAt(0).toUpperCase() + currentView.slice(1).replace('-', ' ')
-          }
-          onFixPatient={handleFixPatient}
+    <div className="flex min-h-screen flex-col">
+      {!isSupabaseConfigured && (
+        <div className="bg-amber-500/10 border-b border-amber-500/30 text-amber-600 dark:text-amber-400 px-4 py-2.5 text-xs sm:text-sm text-center flex items-center justify-center gap-2">
+          <span className="material-symbols-outlined text-base">warning</span>
+          <span>
+            <strong>Atenção:</strong> Variáveis do Supabase não encontradas no <code>.env</code>.
+          </span>
+        </div>
+      )}
+      <div className="flex flex-1 min-h-0">
+        <Sidebar 
+          isOpen={isSidebarOpen} 
+          onClose={() => setIsSidebarOpen(false)} 
+          currentView={currentView}
+          onNavigate={navigateTo}
+          userProfile={userProfile}
         />
         
-        <main className="flex-1 overflow-y-auto">
-          {renderView()}
-        </main>
+        <div className="flex-1 flex flex-col min-w-0">
+          <Header 
+            theme={theme} 
+            onToggleTheme={toggleTheme} 
+            onOpenSidebar={() => setIsSidebarOpen(true)}
+            currentViewTitle={
+              currentView === 'dashboard' ? 'Visão Geral' : 
+              currentView === 'procedure-list' ? 'Lista Procedimento' :
+              currentView === 'raas' ? 'RAAS PSICOSSOCIAL' :
+              currentView === 'patient-reg' ? 'REGISTRO PACIENTE' :
+              currentView.charAt(0).toUpperCase() + currentView.slice(1).replace('-', ' ')
+            }
+            onFixPatient={handleFixPatient}
+          />
+          
+          <main className="flex-1 overflow-y-auto">
+            {renderView()}
+          </main>
+        </div>
       </div>
     </div>
   );

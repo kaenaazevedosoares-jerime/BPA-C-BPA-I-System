@@ -528,7 +528,7 @@ const BpaConsolidatedForm: React.FC<BpaConsolidatedFormProps> = ({ onCancel, onS
                   <option key={m} value={m}>{m} ({getMonthCount(m)})</option>
                 ))}
                 {/* Fallback for data outside the recent range */}
-                {Array.from(new Set(bpaList.map(item => item.header.reference_month)))
+                {(Array.from(new Set(bpaList.map(item => item.header.reference_month))) as string[])
                   .filter(m => !recentFilterMonths.includes(m))
                   .sort()
                   .map(m => (

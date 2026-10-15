@@ -9,6 +9,7 @@ export type PermissionKey =
   | 'view_procedure_catalog'
   | 'view_cbo_catalog'
   | 'view_street_types'
+  | 'view_raas'
   | 'access_production_bpac'
   
   // Actions / Buttons
@@ -17,12 +18,14 @@ export type PermissionKey =
   | 'delete_patient'
   | 'create_bpai'
   | 'create_bpac'
+  | 'create_raas'
   | 'create_professional'
   | 'manage_stock';
 
 export const ALL_PERMISSIONS: { key: PermissionKey; label: string; group: string }[] = [
   { key: 'view_bpai', label: 'Ver BPA-I Digital', group: 'Menu Lateral' },
   { key: 'view_bpac', label: 'Ver BPA-C Consolidado', group: 'Menu Lateral' },
+  { key: 'view_raas', label: 'Ver RAAS Psicossocial', group: 'Menu Lateral' },
   { key: 'access_production_bpac', label: 'Produção BPA-C', group: 'Menu Lateral' },
   { key: 'view_patients', label: 'Ver Pacientes', group: 'Menu Lateral' },
   { key: 'view_profissionais', label: 'Ver Profissionais', group: 'Menu Lateral' },
@@ -36,6 +39,7 @@ export const ALL_PERMISSIONS: { key: PermissionKey; label: string; group: string
   { key: 'edit_patient', label: 'Editar Paciente', group: 'Ações' },
   { key: 'create_bpai', label: 'Criar BPA-I', group: 'Ações' },
   { key: 'create_bpac', label: 'Criar BPA-C', group: 'Ações' },
+  { key: 'create_raas', label: 'Criar RAAS', group: 'Ações' },
   { key: 'create_professional', label: 'Cadastrar Profissional', group: 'Ações' },
 ];
 

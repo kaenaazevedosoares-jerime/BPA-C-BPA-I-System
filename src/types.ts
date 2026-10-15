@@ -11,6 +11,7 @@ export type View =
   | 'procedure-form' 
   | 'procedure-list' 
   | 'bpa-c-form' 
+  | 'raas'
   | 'establishment-reg' 
   | 'procedure-catalog' 
   | 'cbo-reg' 

@@ -713,7 +713,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
     items.forEach(item => {
       // Only log "Finalizado" items that are rejected to avoid noise
       if (item.status === 'Finalizado') {
-        const passed = checkDateInRange(item, false);
+        const passed = checkDateInRange(item);
         if (!passed) {
           // Re-run logic to get details
           const currentStatus = item.status.trim();
@@ -1098,7 +1098,7 @@ const ProcedureList: React.FC<ProcedureListProps> = ({ onAddNew, onEdit }) => {
             </span>
             {filterSia === 'all' ? 'Filtro SIA' : filterSia === 'processed' ? 'SIA Processado' : 'SIA Pendente'}
             {filterSia !== 'all' && (
-              <span className={`flex size-5 items-center justify-center rounded-full text-[10px] font-bold ${filterSia === 'all' ? 'bg-slate-100 dark:bg-slate-800 text-slate-500' : 'bg-white/20 text-white'}`}>
+              <span className="flex size-5 items-center justify-center rounded-full text-[10px] font-bold bg-white/20 text-white">
                 {getSiaCount(filterSia === 'processed' ? 'processed' : 'pending')}
               </span>
             )}
